@@ -2,6 +2,7 @@ package launchpad
 
 import (
 	"fmt"
+	"io"
 	"net/http"
 	"strings"
 )
@@ -72,6 +73,19 @@ func (c *Client) Get(path string) (*http.Response, error) {
 // from /people/+me on the Launchpad API.
 func (c *Client) Me() (*http.Response, error) {
 	return c.Get("/people/+me")
+}
+
+// Patch performs a PATCH request against the Launchpad API with a JSON body.
+// The path is relative to the API base URL (e.g. "/bugs/12345").
+func (c *Client) Patch(path string, body io.Reader) (*http.Response, error) {
+	u := c.apiBase() + "/" + strings.TrimLeft(path, "/")
+	req, err := http.NewRequest(http.MethodPatch, u, body)
+	if err != nil {
+		return nil, fmt.Errorf("launchpad: creating request: %w", err)
+	}
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("Accept", "application/json")
+	return c.Do(req)
 }
 
 // oauthTransport is an http.RoundTripper that injects OAuth headers.
