@@ -541,11 +541,8 @@ func showBug(client *launchpad.Client, bugID int, verbose bool) error {
 				if msg.DateCreated != nil {
 					date = msg.DateCreated.Format("2006-01-02 15:04:05")
 				}
-				fmt.Printf("\n### #%d by %s on %s\n\n", i+1, owner, date)
-				if msg.Subject != "" {
-					fmt.Printf("**Subject:** %s\n\n", msg.Subject)
-				}
-				content := msg.Content
+			fmt.Printf("\n### #%d by %s on %s\n\n", i+1, owner, date)
+			content := msg.Content
 				if len(content) > maxCommentLength {
 					content = content[:maxCommentLength] + "..."
 				}
