@@ -37,6 +37,14 @@ import (
 	"github.com/gkoh/launchpad"
 )
 
+// statusContentReturned is Launchpad's non-standard HTTP 209 response
+// indicating a successful PATCH with content returned.
+const statusContentReturned = 209
+
+// maxDescriptionLength is the maximum number of characters to display
+// for a bug description before truncating.
+const maxDescriptionLength = 200
+
 func main() {
 	globalFlags := flag.NewFlagSet("lp-cli", flag.ContinueOnError)
 	consumerKey := globalFlags.String("consumer", "lp-cli", "OAuth consumer key (application name)")
@@ -373,11 +381,11 @@ func cmdSearchBug(credsPath, consumerKey string, args []string) {
 		os.Exit(1)
 	}
 
-	if resp.StatusCode == 404 {
+	if resp.StatusCode == http.StatusNotFound {
 		fmt.Fprintf(os.Stderr, "Error: project %q not found\n", *project)
 		os.Exit(1)
 	}
-	if resp.StatusCode != 200 {
+	if resp.StatusCode != http.StatusOK {
 		fmt.Fprintf(os.Stderr, "API returned %d: %s\n", resp.StatusCode, strings.TrimSpace(string(body)))
 		os.Exit(1)
 	}
@@ -424,7 +432,7 @@ func verify(creds *launchpad.Credentials) error {
 		return fmt.Errorf("reading response: %w", err)
 	}
 
-	if resp.StatusCode != 200 {
+	if resp.StatusCode != http.StatusOK {
 		return fmt.Errorf("API returned %d: %s", resp.StatusCode, strings.TrimSpace(string(body)))
 	}
 
@@ -456,7 +464,7 @@ func showBug(client *launchpad.Client, bugID int, verbose bool) error {
 		return fmt.Errorf("reading response: %w", err)
 	}
 
-	if resp.StatusCode != 200 {
+	if resp.StatusCode != http.StatusOK {
 		return fmt.Errorf("API returned %d: %s", resp.StatusCode, strings.TrimSpace(string(body)))
 	}
 
@@ -482,8 +490,8 @@ func showBug(client *launchpad.Client, bugID int, verbose bool) error {
 	fmt.Printf("Messages:    %d\n", bug.MessageCount)
 	if bug.Description != "" {
 		desc := bug.Description
-		if len(desc) > 200 {
-			desc = desc[:200] + "..."
+		if len(desc) > maxDescriptionLength {
+			desc = desc[:maxDescriptionLength] + "..."
 		}
 		fmt.Printf("Description: %s\n", desc)
 	}
@@ -573,7 +581,7 @@ func fetchBugTasks(client *launchpad.Client, url string) ([]launchpad.BugTask, e
 		return nil, err
 	}
 
-	if resp.StatusCode != 200 {
+	if resp.StatusCode != http.StatusOK {
 		return nil, fmt.Errorf("bug tasks returned %d: %s", resp.StatusCode, strings.TrimSpace(string(body)))
 	}
 
@@ -613,7 +621,7 @@ func resolveAssignees(client *launchpad.Client, tasks []launchpad.BugTask) map[s
 
 		body, err := io.ReadAll(resp.Body)
 		resp.Body.Close()
-		if err != nil || resp.StatusCode != 200 {
+		if err != nil || resp.StatusCode != http.StatusOK {
 			result[task.AssigneeLink] = task.AssigneeLink
 			continue
 		}
@@ -643,7 +651,7 @@ func updateBugTitle(client *launchpad.Client, bugID int, title string) error {
 	}
 	defer resp.Body.Close()
 
-	if resp.StatusCode != 200 && resp.StatusCode != 209 {
+	if resp.StatusCode != http.StatusOK && resp.StatusCode != statusContentReturned {
 		body, _ := io.ReadAll(resp.Body)
 		return fmt.Errorf("API returned %d: %s", resp.StatusCode, strings.TrimSpace(string(body)))
 	}
@@ -673,7 +681,7 @@ func fetchAllMessages(client *launchpad.Client, url string) ([]launchpad.Message
 			return all, err
 		}
 
-		if resp.StatusCode != 200 {
+		if resp.StatusCode != http.StatusOK {
 			return all, fmt.Errorf("messages returned %d: %s", resp.StatusCode, strings.TrimSpace(string(body)))
 		}
 
@@ -717,7 +725,7 @@ func resolveOwners(client *launchpad.Client, messages []launchpad.Message) map[s
 
 		body, err := io.ReadAll(resp.Body)
 		resp.Body.Close()
-		if err != nil || resp.StatusCode != 200 {
+		if err != nil || resp.StatusCode != http.StatusOK {
 			result[msg.OwnerLink] = msg.OwnerLink
 			continue
 		}

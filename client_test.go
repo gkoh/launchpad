@@ -8,6 +8,10 @@ import (
 	"testing"
 )
 
+// statusContentReturned is Launchpad's non-standard HTTP 209 response
+// indicating a successful PATCH with content returned.
+const statusContentReturned = 209
+
 func TestClientGet(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		auth := r.Header.Get("Authorization")
@@ -65,7 +69,7 @@ func TestClientMe(t *testing.T) {
 	}
 	resp.Body.Close()
 
-	if resp.StatusCode != 200 {
+	if resp.StatusCode != http.StatusOK {
 		t.Errorf("status = %d", resp.StatusCode)
 	}
 }
@@ -74,7 +78,7 @@ func TestOAuthTransportSigns(t *testing.T) {
 	var gotAuth string
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		gotAuth = r.Header.Get("Authorization")
-		w.WriteHeader(200)
+		w.WriteHeader(http.StatusOK)
 	}))
 	defer srv.Close()
 
@@ -115,7 +119,7 @@ func TestClientPatch(t *testing.T) {
 			t.Errorf("body = %q", string(body))
 		}
 
-		w.WriteHeader(209)
+		w.WriteHeader(statusContentReturned)
 		w.Write([]byte(`{"title":"new title"}`))
 	}))
 	defer srv.Close()
@@ -133,8 +137,8 @@ func TestClientPatch(t *testing.T) {
 	}
 	defer resp.Body.Close()
 
-	if resp.StatusCode != 209 {
-		t.Errorf("status = %d, want 209", resp.StatusCode)
+	if resp.StatusCode != statusContentReturned {
+		t.Errorf("status = %d, want %d", resp.StatusCode, statusContentReturned)
 	}
 
 	body, _ := io.ReadAll(resp.Body)
