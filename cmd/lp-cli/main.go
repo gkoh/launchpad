@@ -30,6 +30,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"net/url"
 	"os"
 	"strings"
 
@@ -69,6 +70,8 @@ func main() {
 		cmdGet(*credsPath, *consumerKey, args[1:])
 	case "set":
 		cmdSet(*credsPath, *consumerKey, args[1:])
+	case "search":
+		cmdSearch(*credsPath, *consumerKey, args[1:])
 	default:
 		fmt.Fprintf(os.Stderr, "Unknown command: %s\n\n", args[0])
 		usage()
@@ -93,6 +96,15 @@ Commands:
 
   set <resource> [flags]         Update a resource
     bug -id <int> [-title <s>]   Update bug fields
+
+  search bug [flags] [<text>]      Search for bugs
+    -project <name>              Project or distribution (required)
+    -status <status>             Filter by status
+    -importance <importance>     Filter by importance
+    -assignee <name>             Filter by assignee username
+    -tags <t1,t2,...>            Filter by tags (comma-separated)
+    -limit <int>                 Max results (default: 10)
+    <text>                       Full-text search filter (positional)
 `)
 }
 
@@ -274,6 +286,125 @@ func cmdSetBug(credsPath, consumerKey string, args []string) {
 	if err := showBug(client, *bugID); err != nil {
 		fmt.Fprintf(os.Stderr, "Error: %v\n", err)
 		os.Exit(1)
+	}
+}
+
+// cmdSearch handles the "search" subcommand.
+func cmdSearch(credsPath, consumerKey string, args []string) {
+	if len(args) == 0 {
+		fmt.Fprintf(os.Stderr, "Usage: lp-cli search <resource> [flags]\n\nResources:\n  bug    Search for bugs\n")
+		os.Exit(1)
+	}
+
+	switch args[0] {
+	case "bug":
+		cmdSearchBug(credsPath, consumerKey, args[1:])
+	default:
+		fmt.Fprintf(os.Stderr, "Unknown resource: %s\n\nAvailable resources:\n  bug\n", args[0])
+		os.Exit(1)
+	}
+}
+
+// cmdSearchBug handles "search bug [flags]".
+func cmdSearchBug(credsPath, consumerKey string, args []string) {
+	fs := flag.NewFlagSet("search bug", flag.ExitOnError)
+	project := fs.String("project", "", "Project or distribution name (required)")
+	status := fs.String("status", "", "Filter by bug task status (e.g. New, Confirmed, In Progress)")
+	importance := fs.String("importance", "", "Filter by importance (e.g. Critical, High, Medium)")
+	assignee := fs.String("assignee", "", "Filter by assignee username")
+	tags := fs.String("tags", "", "Filter by tags (comma-separated)")
+	limit := fs.Int("limit", 10, "Maximum number of results")
+	fs.Parse(args)
+
+	if *project == "" {
+		fmt.Fprintf(os.Stderr, "Error: -project is required\n")
+		fs.Usage()
+		os.Exit(1)
+	}
+
+	// Remaining positional arguments form the search text.
+	searchText := strings.Join(fs.Args(), " ")
+
+	// Build the search URL with ws.op=searchTasks.
+	params := url.Values{}
+	params.Set("ws.op", "searchTasks")
+	if searchText != "" {
+		params.Set("search_text", searchText)
+	}
+	if *status != "" {
+		params.Set("status", *status)
+	}
+	if *importance != "" {
+		params.Set("importance", *importance)
+	}
+	if *assignee != "" {
+		params.Set("assignee", fmt.Sprintf("https://api.launchpad.net/devel/~%s", *assignee))
+	}
+	if *tags != "" {
+		for _, tag := range strings.Split(*tags, ",") {
+			tag = strings.TrimSpace(tag)
+			if tag != "" {
+				params.Add("tags", tag)
+			}
+		}
+	}
+	params.Set("ws.size", fmt.Sprintf("%d", *limit))
+
+	path := fmt.Sprintf("/%s?%s", *project, params.Encode())
+
+	creds, err := launchpad.LoadCredentials(credsPath)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "Error loading credentials from %s: %v\n", credsPath, err)
+		os.Exit(1)
+	}
+	client := launchpad.NewClient(creds, nil)
+
+	resp, err := client.Get(path)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "Error: %v\n", err)
+		os.Exit(1)
+	}
+	defer resp.Body.Close()
+
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "Error reading response: %v\n", err)
+		os.Exit(1)
+	}
+
+	if resp.StatusCode == 404 {
+		fmt.Fprintf(os.Stderr, "Error: project %q not found\n", *project)
+		os.Exit(1)
+	}
+	if resp.StatusCode != 200 {
+		fmt.Fprintf(os.Stderr, "API returned %d: %s\n", resp.StatusCode, strings.TrimSpace(string(body)))
+		os.Exit(1)
+	}
+
+	var collection launchpad.BugTaskCollection
+	if err := json.Unmarshal(body, &collection); err != nil {
+		fmt.Fprintf(os.Stderr, "Error parsing response: %v\n", err)
+		os.Exit(1)
+	}
+
+	if len(collection.Entries) == 0 {
+		fmt.Println("No results found.")
+		return
+	}
+
+	fmt.Printf("Found %d bug task(s):\n\n", len(collection.Entries))
+	for i, task := range collection.Entries {
+		if i > 0 {
+			fmt.Println()
+		}
+		fmt.Printf("  %s\n", task.Title)
+		fmt.Printf("    Target:     %s\n", task.BugTargetDisplayName)
+		fmt.Printf("    Status:     %s\n", task.Status)
+		fmt.Printf("    Importance: %s\n", task.Importance)
+		if task.AssigneeLink != "" {
+			fmt.Printf("    Assignee:   %s\n", task.AssigneeLink)
+		}
+		fmt.Printf("    Web:        %s\n", task.WebLink)
 	}
 }
 
