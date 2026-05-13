@@ -19,7 +19,7 @@
 //	  bug -id <int>              Query and display a bug
 //
 //	set <resource> [flags]       Update a resource
-//	  bug -id <int> -project <name> [-title <s>] [-assignee <user> -task <target>] [-status <s> -task <target>]
+//	  bug -id <int> -project <name> [-title <s>] [-assignee <user> -task <target>] [-status <s> -task <target>] [-importance <s> -task <target>]
 package main
 
 import (
@@ -110,7 +110,8 @@ Commands:
     bug -id <int> -project <name> [field flags]   Update bug fields
       -title <string>                             New bug title
       -assignee <user>                            Set assignee (use "" to unassign)
-      -task <target>                              Bug task target (required with -assignee)
+      -status <status>                            Set bug task status
+      -task <target>                              Bug task target (required with -assignee, -status)
 
   search bug [flags] [<text>]      Search for bugs
     -project <name>              Project or distribution (required)
@@ -275,7 +276,7 @@ func cmdSet(credsPath, consumerKey string, args []string) {
 	}
 }
 
-// cmdSetBug handles "set bug -id <int> -project <name> [-title <string>] [-assignee <user> -task <target>] [-status <status> -task <target>]".
+// cmdSetBug handles "set bug -id <int> -project <name> [-title <string>] [-assignee <user> -task <target>] [-status <s> -task <target>]".
 func cmdSetBug(credsPath, consumerKey string, args []string) {
 	fs := flag.NewFlagSet("set bug", flag.ExitOnError)
 	bugID := fs.Int("id", 0, "Bug ID (required)")
@@ -283,7 +284,8 @@ func cmdSetBug(credsPath, consumerKey string, args []string) {
 	title := fs.String("title", "", "New bug title")
 	assignee := fs.String("assignee", "", "Assignee username (use \"\" to unassign)")
 	status := fs.String("status", "", "Bug task status (e.g. New, Confirmed, \"In Progress\", \"Fix Committed\")")
-	task := fs.String("task", "", "Bug task target name (required with -assignee, -status)")
+	importance := fs.String("importance", "", "Bug task importance (e.g. Critical, High, Medium)")
+	task := fs.String("task", "", "Bug task target name (required with -assignee, -status, -importance)")
 	fs.Parse(args)
 
 	if *bugID <= 0 {
@@ -301,25 +303,28 @@ func cmdSetBug(credsPath, consumerKey string, args []string) {
 	// Detect which flags were explicitly set.
 	assigneeSet := false
 	statusSet := false
+	importanceSet := false
 	fs.Visit(func(f *flag.Flag) {
 		switch f.Name {
 		case "assignee":
 			assigneeSet = true
 		case "status":
 			statusSet = true
+		case "importance":
+			importanceSet = true
 		}
 	})
 
 	// Require at least one field to update.
-	if *title == "" && !assigneeSet && !statusSet {
-		fmt.Fprintf(os.Stderr, "Error: at least one field flag is required (e.g. -title, -assignee, -status)\n")
+	if *title == "" && !assigneeSet && !statusSet && !importanceSet {
+		fmt.Fprintf(os.Stderr, "Error: at least one field flag is required (e.g. -title, -assignee, -status, -importance)\n")
 		fs.Usage()
 		os.Exit(1)
 	}
 
-	// -assignee and -status require -task.
-	if (assigneeSet || statusSet) && *task == "" {
-		fmt.Fprintf(os.Stderr, "Error: -task is required when using -assignee or -status\n")
+	// -assignee, -status, and -importance require -task.
+	if (assigneeSet || statusSet || importanceSet) && *task == "" {
+		fmt.Fprintf(os.Stderr, "Error: -task is required when using -assignee, -status, or -importance\n")
 		fs.Usage()
 		os.Exit(1)
 	}
@@ -328,6 +333,14 @@ func cmdSetBug(credsPath, consumerKey string, args []string) {
 	if statusSet {
 		if !validBugTaskStatus(*status) {
 			fmt.Fprintf(os.Stderr, "Error: invalid status %q; valid values: %s\n", *status, validBugTaskStatusList())
+			os.Exit(1)
+		}
+	}
+
+	// Validate -importance value locally.
+	if importanceSet {
+		if !validBugTaskImportance(*importance) {
+			fmt.Fprintf(os.Stderr, "Error: invalid importance %q; valid values: %s\n", *importance, validBugTaskImportanceList())
 			os.Exit(1)
 		}
 	}
@@ -395,6 +408,13 @@ func cmdSetBug(credsPath, consumerKey string, args []string) {
 
 	if statusSet {
 		if err := updateBugTaskStatus(client, *bugID, tasks, *task, *status); err != nil {
+			fmt.Fprintf(os.Stderr, "Error: %v\n", err)
+			os.Exit(1)
+		}
+	}
+
+	if importanceSet {
+		if err := updateBugTaskImportance(client, *bugID, tasks, *task, *importance); err != nil {
 			fmt.Fprintf(os.Stderr, "Error: %v\n", err)
 			os.Exit(1)
 		}
@@ -831,8 +851,8 @@ func findTaskByTarget(tasks []launchpad.BugTask, targetName string) (*launchpad.
 	return nil, fmt.Errorf("no task found for target %q; available targets: %s", targetName, strings.Join(names, ", "))
 }
 
-// updateBugTaskStatus sets the status on a bug task matching the given
-// target name. The tasks slice must have been fetched beforehand.
+// updateBugTaskStatus sets the status on a bug task matching the given target
+// name. The tasks slice must have been fetched beforehand.
 func updateBugTaskStatus(client *launchpad.Client, bugID int, tasks []launchpad.BugTask, targetName, status string) error {
 	matched, err := findTaskByTarget(tasks, targetName)
 	if err != nil {
@@ -910,6 +930,74 @@ func validBugTaskStatusList() string {
 		string(launchpad.BugTaskStatusFixReleased),
 		string(launchpad.BugTaskStatusDoesNotExist),
 		string(launchpad.BugTaskStatusUnknown),
+	}, ", ")
+}
+
+// updateBugTaskImportance sets the importance on a bug task matching the given
+// target name. The tasks slice must have been fetched beforehand.
+func updateBugTaskImportance(client *launchpad.Client, bugID int, tasks []launchpad.BugTask, targetName, importance string) error {
+	matched, err := findTaskByTarget(tasks, targetName)
+	if err != nil {
+		return err
+	}
+
+	payload, err := json.Marshal(map[string]string{"importance": importance})
+	if err != nil {
+		return fmt.Errorf("marshalling payload: %w", err)
+	}
+
+	taskURL := matched.SelfLink.String()
+	req, err := http.NewRequest(http.MethodPatch, taskURL, bytes.NewReader(payload))
+	if err != nil {
+		return err
+	}
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("Accept", "application/json")
+
+	resp, err := client.Do(req)
+	if err != nil {
+		return fmt.Errorf("updating importance: %w", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode == http.StatusUnauthorized {
+		return fmt.Errorf("not authorized to edit bug #%d (credentials may lack write permission; re-run 'lp-cli auth -permission WRITE_PRIVATE')", bugID)
+	}
+	if resp.StatusCode != http.StatusOK && resp.StatusCode != statusContentReturned {
+		body, _ := io.ReadAll(resp.Body)
+		return fmt.Errorf("API returned %d: %s", resp.StatusCode, strings.TrimSpace(string(body)))
+	}
+
+	fmt.Printf("Set importance %q on task %q for bug #%d\n", importance, targetName, bugID)
+	return nil
+}
+
+// validBugTaskImportance returns true if s is a valid BugTaskImportance value.
+func validBugTaskImportance(s string) bool {
+	switch launchpad.BugTaskImportance(s) {
+	case launchpad.BugTaskImportanceUnknown,
+		launchpad.BugTaskImportanceUndecided,
+		launchpad.BugTaskImportanceCritical,
+		launchpad.BugTaskImportanceHigh,
+		launchpad.BugTaskImportanceMedium,
+		launchpad.BugTaskImportanceLow,
+		launchpad.BugTaskImportanceWishlist:
+		return true
+	}
+	return false
+}
+
+// validBugTaskImportanceList returns a comma-separated string of all valid
+// BugTaskImportance values for use in error messages.
+func validBugTaskImportanceList() string {
+	return strings.Join([]string{
+		string(launchpad.BugTaskImportanceUnknown),
+		string(launchpad.BugTaskImportanceUndecided),
+		string(launchpad.BugTaskImportanceCritical),
+		string(launchpad.BugTaskImportanceHigh),
+		string(launchpad.BugTaskImportanceMedium),
+		string(launchpad.BugTaskImportanceLow),
+		string(launchpad.BugTaskImportanceWishlist),
 	}, ", ")
 }
 
