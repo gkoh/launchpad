@@ -127,6 +127,14 @@ func cmdAuth(credsPath, consumerKey string, args []string) {
 	permission := fs.String("permission", launchpad.PermissionReadPrivate, "Permission level (READ_PUBLIC, READ_PRIVATE, WRITE_PUBLIC, WRITE_PRIVATE)")
 	fs.Parse(args)
 
+	// Detect whether -permission was explicitly provided.
+	permissionSet := false
+	fs.Visit(func(f *flag.Flag) {
+		if f.Name == "permission" {
+			permissionSet = true
+		}
+	})
+
 	if *check {
 		creds, err := launchpad.LoadCredentials(credsPath)
 		if err != nil {
@@ -141,14 +149,18 @@ func cmdAuth(credsPath, consumerKey string, args []string) {
 	}
 
 	// Check for existing valid credentials.
-	if creds, err := launchpad.LoadCredentials(credsPath); err == nil {
-		fmt.Printf("Found existing credentials at %s\n", credsPath)
-		fmt.Println("Verifying...")
-		if err := verify(creds); err != nil {
-			fmt.Fprintf(os.Stderr, "Existing credentials are invalid: %v\n", err)
-			fmt.Println("Re-authenticating...")
-		} else {
-			return
+	// Skip reuse when -permission is explicitly set, since the user
+	// wants a new token with different permissions.
+	if !permissionSet {
+		if creds, err := launchpad.LoadCredentials(credsPath); err == nil {
+			fmt.Printf("Found existing credentials at %s\n", credsPath)
+			fmt.Println("Verifying...")
+			if err := verify(creds); err != nil {
+				fmt.Fprintf(os.Stderr, "Existing credentials are invalid: %v\n", err)
+				fmt.Println("Re-authenticating...")
+			} else {
+				return
+			}
 		}
 	}
 
@@ -646,6 +658,9 @@ func updateBugTitle(client *launchpad.Client, bugID int, title string) error {
 	}
 	defer resp.Body.Close()
 
+	if resp.StatusCode == http.StatusUnauthorized {
+		return fmt.Errorf("not authorized to edit bug #%d (credentials may lack write permission; re-run 'lp-cli auth -permission WRITE_PRIVATE')", bugID)
+	}
 	if resp.StatusCode != http.StatusOK && resp.StatusCode != statusContentReturned {
 		body, _ := io.ReadAll(resp.Body)
 		return fmt.Errorf("API returned %d: %s", resp.StatusCode, strings.TrimSpace(string(body)))
