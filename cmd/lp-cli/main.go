@@ -19,7 +19,7 @@
 //	  bug -id <int>              Query and display a bug
 //
 //	set <resource> [flags]       Update a resource
-//	  bug -id <int> -project <name> [-title <s>] [-assignee <user> -task <target>]
+//	  bug -id <int> -project <name> [-title <s>] [-assignee <user> -task <target>] [-status <s> -task <target>]
 package main
 
 import (
@@ -275,14 +275,15 @@ func cmdSet(credsPath, consumerKey string, args []string) {
 	}
 }
 
-// cmdSetBug handles "set bug -id <int> -project <name> [-title <string>] [-assignee <user> -task <target>]".
+// cmdSetBug handles "set bug -id <int> -project <name> [-title <string>] [-assignee <user> -task <target>] [-status <status> -task <target>]".
 func cmdSetBug(credsPath, consumerKey string, args []string) {
 	fs := flag.NewFlagSet("set bug", flag.ExitOnError)
 	bugID := fs.Int("id", 0, "Bug ID (required)")
 	project := fs.String("project", "", "Project or distribution name (required)")
 	title := fs.String("title", "", "New bug title")
 	assignee := fs.String("assignee", "", "Assignee username (use \"\" to unassign)")
-	task := fs.String("task", "", "Bug task target name (required with -assignee)")
+	status := fs.String("status", "", "Bug task status (e.g. New, Confirmed, \"In Progress\", \"Fix Committed\")")
+	task := fs.String("task", "", "Bug task target name (required with -assignee, -status)")
 	fs.Parse(args)
 
 	if *bugID <= 0 {
@@ -299,24 +300,36 @@ func cmdSetBug(credsPath, consumerKey string, args []string) {
 
 	// Detect which flags were explicitly set.
 	assigneeSet := false
+	statusSet := false
 	fs.Visit(func(f *flag.Flag) {
-		if f.Name == "assignee" {
+		switch f.Name {
+		case "assignee":
 			assigneeSet = true
+		case "status":
+			statusSet = true
 		}
 	})
 
 	// Require at least one field to update.
-	if *title == "" && !assigneeSet {
-		fmt.Fprintf(os.Stderr, "Error: at least one field flag is required (e.g. -title, -assignee)\n")
+	if *title == "" && !assigneeSet && !statusSet {
+		fmt.Fprintf(os.Stderr, "Error: at least one field flag is required (e.g. -title, -assignee, -status)\n")
 		fs.Usage()
 		os.Exit(1)
 	}
 
-	// -assignee requires -task.
-	if assigneeSet && *task == "" {
-		fmt.Fprintf(os.Stderr, "Error: -task is required when using -assignee\n")
+	// -assignee and -status require -task.
+	if (assigneeSet || statusSet) && *task == "" {
+		fmt.Fprintf(os.Stderr, "Error: -task is required when using -assignee or -status\n")
 		fs.Usage()
 		os.Exit(1)
+	}
+
+	// Validate -status value locally.
+	if statusSet {
+		if !validBugTaskStatus(*status) {
+			fmt.Fprintf(os.Stderr, "Error: invalid status %q; valid values: %s\n", *status, validBugTaskStatusList())
+			os.Exit(1)
+		}
 	}
 
 	creds, err := launchpad.LoadCredentials(credsPath)
@@ -375,6 +388,13 @@ func cmdSetBug(credsPath, consumerKey string, args []string) {
 
 	if assigneeSet {
 		if err := updateBugTaskAssignee(client, *bugID, tasks, *task, *assignee); err != nil {
+			fmt.Fprintf(os.Stderr, "Error: %v\n", err)
+			os.Exit(1)
+		}
+	}
+
+	if statusSet {
+		if err := updateBugTaskStatus(client, *bugID, tasks, *task, *status); err != nil {
 			fmt.Fprintf(os.Stderr, "Error: %v\n", err)
 			os.Exit(1)
 		}
@@ -809,6 +829,88 @@ func findTaskByTarget(tasks []launchpad.BugTask, targetName string) (*launchpad.
 		names = append(names, t.BugTargetName)
 	}
 	return nil, fmt.Errorf("no task found for target %q; available targets: %s", targetName, strings.Join(names, ", "))
+}
+
+// updateBugTaskStatus sets the status on a bug task matching the given
+// target name. The tasks slice must have been fetched beforehand.
+func updateBugTaskStatus(client *launchpad.Client, bugID int, tasks []launchpad.BugTask, targetName, status string) error {
+	matched, err := findTaskByTarget(tasks, targetName)
+	if err != nil {
+		return err
+	}
+
+	payload, err := json.Marshal(map[string]string{"status": status})
+	if err != nil {
+		return fmt.Errorf("marshalling payload: %w", err)
+	}
+
+	taskURL := matched.SelfLink.String()
+	req, err := http.NewRequest(http.MethodPatch, taskURL, bytes.NewReader(payload))
+	if err != nil {
+		return err
+	}
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("Accept", "application/json")
+
+	resp, err := client.Do(req)
+	if err != nil {
+		return fmt.Errorf("updating status: %w", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode == http.StatusUnauthorized {
+		return fmt.Errorf("not authorized to edit bug #%d (credentials may lack write permission; re-run 'lp-cli auth -permission WRITE_PRIVATE')", bugID)
+	}
+	if resp.StatusCode != http.StatusOK && resp.StatusCode != statusContentReturned {
+		body, _ := io.ReadAll(resp.Body)
+		return fmt.Errorf("API returned %d: %s", resp.StatusCode, strings.TrimSpace(string(body)))
+	}
+
+	fmt.Printf("Set status %q on task %q for bug #%d\n", status, targetName, bugID)
+	return nil
+}
+
+// validBugTaskStatus returns true if s is a valid BugTaskStatus value.
+func validBugTaskStatus(s string) bool {
+	switch launchpad.BugTaskStatus(s) {
+	case launchpad.BugTaskStatusNew,
+		launchpad.BugTaskStatusIncomplete,
+		launchpad.BugTaskStatusOpinion,
+		launchpad.BugTaskStatusInvalid,
+		launchpad.BugTaskStatusWontFix,
+		launchpad.BugTaskStatusExpired,
+		launchpad.BugTaskStatusConfirmed,
+		launchpad.BugTaskStatusTriaged,
+		launchpad.BugTaskStatusInProgress,
+		launchpad.BugTaskStatusDeferred,
+		launchpad.BugTaskStatusFixCommitted,
+		launchpad.BugTaskStatusFixReleased,
+		launchpad.BugTaskStatusDoesNotExist,
+		launchpad.BugTaskStatusUnknown:
+		return true
+	}
+	return false
+}
+
+// validBugTaskStatusList returns a comma-separated string of all valid
+// BugTaskStatus values for use in error messages.
+func validBugTaskStatusList() string {
+	return strings.Join([]string{
+		string(launchpad.BugTaskStatusNew),
+		string(launchpad.BugTaskStatusIncomplete),
+		string(launchpad.BugTaskStatusOpinion),
+		string(launchpad.BugTaskStatusInvalid),
+		string(launchpad.BugTaskStatusWontFix),
+		string(launchpad.BugTaskStatusExpired),
+		string(launchpad.BugTaskStatusConfirmed),
+		string(launchpad.BugTaskStatusTriaged),
+		string(launchpad.BugTaskStatusInProgress),
+		string(launchpad.BugTaskStatusDeferred),
+		string(launchpad.BugTaskStatusFixCommitted),
+		string(launchpad.BugTaskStatusFixReleased),
+		string(launchpad.BugTaskStatusDoesNotExist),
+		string(launchpad.BugTaskStatusUnknown),
+	}, ", ")
 }
 
 // fetchAllMessages fetches all messages for a bug, following pagination links.
