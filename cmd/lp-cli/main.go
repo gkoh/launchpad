@@ -1,6 +1,25 @@
-// Command lp-cli performs the interactive OAuth 1.0a flow to obtain
-// Launchpad API credentials, saves them to disk, and verifies them
-// by fetching the authenticated user's profile.
+// Command lp-cli is a CLI tool for interacting with the Launchpad API.
+//
+// Usage:
+//
+//	lp-cli [global flags] <command> [<resource>] [flags]
+//
+// Global flags:
+//
+//	-consumer      OAuth consumer key (default: "lp-cli")
+//	-credentials   Path to credentials file
+//
+// Commands:
+//
+//	auth                         Authenticate with Launchpad
+//	  -check                     Verify stored credentials
+//	  -permission                Permission level (default: READ_PRIVATE)
+//
+//	get <resource> [flags]       Fetch and display a resource
+//	  bug -id <int>              Query and display a bug
+//
+//	set <resource> [flags]       Update a resource
+//	  bug -id <int> -title <s>   Update bug fields
 package main
 
 import (
@@ -18,13 +37,15 @@ import (
 )
 
 func main() {
-	consumerKey := flag.String("consumer", "lp-cli", "OAuth consumer key (application name)")
-	permission := flag.String("permission", launchpad.PermissionReadPrivate, "Permission level (READ_PUBLIC, READ_PRIVATE, WRITE_PUBLIC, WRITE_PRIVATE)")
-	credsPath := flag.String("credentials", "", "Path to save credentials (default: ~/.config/launchpad/<consumer>.json)")
-	check := flag.Bool("check", false, "Check that stored credentials are valid and exit")
-	bugID := flag.Int("bug", 0, "Query and display a bug by its ID")
-	setTitle := flag.String("set-title", "", "Set the bug title (requires -bug)")
-	flag.Parse()
+	globalFlags := flag.NewFlagSet("lp-cli", flag.ContinueOnError)
+	consumerKey := globalFlags.String("consumer", "lp-cli", "OAuth consumer key (application name)")
+	credsPath := globalFlags.String("credentials", "", "Path to credentials file (default: ~/.config/launchpad/<consumer>.json)")
+
+	globalFlags.Usage = usage
+
+	if err := globalFlags.Parse(os.Args[1:]); err != nil {
+		os.Exit(1)
+	}
 
 	if *credsPath == "" {
 		p, err := launchpad.DefaultCredentialsPath(*consumerKey)
@@ -35,11 +56,57 @@ func main() {
 		*credsPath = p
 	}
 
-	// -check: load and verify stored credentials, then exit.
+	args := globalFlags.Args()
+	if len(args) == 0 {
+		usage()
+		os.Exit(1)
+	}
+
+	switch args[0] {
+	case "auth":
+		cmdAuth(*credsPath, *consumerKey, args[1:])
+	case "get":
+		cmdGet(*credsPath, *consumerKey, args[1:])
+	case "set":
+		cmdSet(*credsPath, *consumerKey, args[1:])
+	default:
+		fmt.Fprintf(os.Stderr, "Unknown command: %s\n\n", args[0])
+		usage()
+		os.Exit(1)
+	}
+}
+
+func usage() {
+	fmt.Fprintf(os.Stderr, `Usage: lp-cli [global flags] <command> [<resource>] [flags]
+
+Global flags:
+  -consumer      OAuth consumer key (default: "lp-cli")
+  -credentials   Path to credentials file
+
+Commands:
+  auth                           Authenticate with Launchpad
+    -check                       Verify stored credentials and exit
+    -permission <level>          Permission level (default: READ_PRIVATE)
+
+  get <resource> [flags]         Fetch and display a resource
+    bug -id <int>                Query and display a bug by ID
+
+  set <resource> [flags]         Update a resource
+    bug -id <int> [-title <s>]   Update bug fields
+`)
+}
+
+// cmdAuth handles the "auth" subcommand.
+func cmdAuth(credsPath, consumerKey string, args []string) {
+	fs := flag.NewFlagSet("auth", flag.ExitOnError)
+	check := fs.Bool("check", false, "Verify stored credentials and exit")
+	permission := fs.String("permission", launchpad.PermissionReadPrivate, "Permission level (READ_PUBLIC, READ_PRIVATE, WRITE_PUBLIC, WRITE_PRIVATE)")
+	fs.Parse(args)
+
 	if *check {
-		creds, err := launchpad.LoadCredentials(*credsPath)
+		creds, err := launchpad.LoadCredentials(credsPath)
 		if err != nil {
-			fmt.Fprintf(os.Stderr, "Error loading credentials from %s: %v\n", *credsPath, err)
+			fmt.Fprintf(os.Stderr, "Error loading credentials from %s: %v\n", credsPath, err)
 			os.Exit(1)
 		}
 		if err := verify(creds); err != nil {
@@ -49,37 +116,9 @@ func main() {
 		return
 	}
 
-	// -bug: query and display a bug by ID; optionally update its title.
-	if *bugID > 0 {
-		creds, err := launchpad.LoadCredentials(*credsPath)
-		if err != nil {
-			fmt.Fprintf(os.Stderr, "Error loading credentials from %s: %v\n", *credsPath, err)
-			os.Exit(1)
-		}
-		client := launchpad.NewClient(creds, nil)
-
-		if *setTitle != "" {
-			if err := updateBugTitle(client, *bugID, *setTitle); err != nil {
-				fmt.Fprintf(os.Stderr, "Error: %v\n", err)
-				os.Exit(1)
-			}
-		}
-
-		if err := showBug(client, *bugID); err != nil {
-			fmt.Fprintf(os.Stderr, "Error: %v\n", err)
-			os.Exit(1)
-		}
-		return
-	}
-
-	if *setTitle != "" {
-		fmt.Fprintf(os.Stderr, "Error: -set-title requires -bug\n")
-		os.Exit(1)
-	}
-
-	// Check for existing credentials.
-	if creds, err := launchpad.LoadCredentials(*credsPath); err == nil {
-		fmt.Printf("Found existing credentials at %s\n", *credsPath)
+	// Check for existing valid credentials.
+	if creds, err := launchpad.LoadCredentials(credsPath); err == nil {
+		fmt.Printf("Found existing credentials at %s\n", credsPath)
 		fmt.Println("Verifying...")
 		if err := verify(creds); err != nil {
 			fmt.Fprintf(os.Stderr, "Existing credentials are invalid: %v\n", err)
@@ -90,7 +129,7 @@ func main() {
 	}
 
 	cfg := &launchpad.AuthConfig{
-		ConsumerKey: *consumerKey,
+		ConsumerKey: consumerKey,
 	}
 
 	// Step 1: Get request token.
@@ -120,16 +159,16 @@ func main() {
 	}
 
 	creds := &launchpad.Credentials{
-		ConsumerKey: *consumerKey,
+		ConsumerKey: consumerKey,
 		Token:       accessToken,
 	}
 
 	// Save credentials.
-	if err := creds.Save(*credsPath); err != nil {
+	if err := creds.Save(credsPath); err != nil {
 		fmt.Fprintf(os.Stderr, "Error saving credentials: %v\n", err)
 		os.Exit(1)
 	}
-	fmt.Printf("Credentials saved to %s\n", *credsPath)
+	fmt.Printf("Credentials saved to %s\n", credsPath)
 
 	// Verify.
 	fmt.Println("Verifying credentials...")
@@ -139,6 +178,107 @@ func main() {
 	}
 }
 
+// cmdGet handles the "get" subcommand, dispatching to the appropriate resource handler.
+func cmdGet(credsPath, consumerKey string, args []string) {
+	if len(args) == 0 {
+		fmt.Fprintf(os.Stderr, "Usage: lp-cli get <resource> [flags]\n\nResources:\n  bug    Query and display a bug\n")
+		os.Exit(1)
+	}
+
+	switch args[0] {
+	case "bug":
+		cmdGetBug(credsPath, consumerKey, args[1:])
+	default:
+		fmt.Fprintf(os.Stderr, "Unknown resource: %s\n\nAvailable resources:\n  bug\n", args[0])
+		os.Exit(1)
+	}
+}
+
+// cmdGetBug handles "get bug -id <int>".
+func cmdGetBug(credsPath, consumerKey string, args []string) {
+	fs := flag.NewFlagSet("get bug", flag.ExitOnError)
+	bugID := fs.Int("id", 0, "Bug ID (required)")
+	fs.Parse(args)
+
+	if *bugID <= 0 {
+		fmt.Fprintf(os.Stderr, "Error: -id is required\n")
+		fs.Usage()
+		os.Exit(1)
+	}
+
+	creds, err := launchpad.LoadCredentials(credsPath)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "Error loading credentials from %s: %v\n", credsPath, err)
+		os.Exit(1)
+	}
+	client := launchpad.NewClient(creds, nil)
+
+	if err := showBug(client, *bugID); err != nil {
+		fmt.Fprintf(os.Stderr, "Error: %v\n", err)
+		os.Exit(1)
+	}
+}
+
+// cmdSet handles the "set" subcommand, dispatching to the appropriate resource handler.
+func cmdSet(credsPath, consumerKey string, args []string) {
+	if len(args) == 0 {
+		fmt.Fprintf(os.Stderr, "Usage: lp-cli set <resource> [flags]\n\nResources:\n  bug    Update bug fields\n")
+		os.Exit(1)
+	}
+
+	switch args[0] {
+	case "bug":
+		cmdSetBug(credsPath, consumerKey, args[1:])
+	default:
+		fmt.Fprintf(os.Stderr, "Unknown resource: %s\n\nAvailable resources:\n  bug\n", args[0])
+		os.Exit(1)
+	}
+}
+
+// cmdSetBug handles "set bug -id <int> [-title <string>]".
+func cmdSetBug(credsPath, consumerKey string, args []string) {
+	fs := flag.NewFlagSet("set bug", flag.ExitOnError)
+	bugID := fs.Int("id", 0, "Bug ID (required)")
+	title := fs.String("title", "", "New bug title")
+	// Future fields: add more flags here (e.g. -description, -importance).
+	fs.Parse(args)
+
+	if *bugID <= 0 {
+		fmt.Fprintf(os.Stderr, "Error: -id is required\n")
+		fs.Usage()
+		os.Exit(1)
+	}
+
+	// Require at least one field to update.
+	if *title == "" {
+		fmt.Fprintf(os.Stderr, "Error: at least one field flag is required (e.g. -title)\n")
+		fs.Usage()
+		os.Exit(1)
+	}
+
+	creds, err := launchpad.LoadCredentials(credsPath)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "Error loading credentials from %s: %v\n", credsPath, err)
+		os.Exit(1)
+	}
+	client := launchpad.NewClient(creds, nil)
+
+	if *title != "" {
+		if err := updateBugTitle(client, *bugID, *title); err != nil {
+			fmt.Fprintf(os.Stderr, "Error: %v\n", err)
+			os.Exit(1)
+		}
+	}
+
+	// Display updated bug.
+	if err := showBug(client, *bugID); err != nil {
+		fmt.Fprintf(os.Stderr, "Error: %v\n", err)
+		os.Exit(1)
+	}
+}
+
+// verify checks that the given credentials are valid by fetching the
+// authenticated user's profile.
 func verify(creds *launchpad.Credentials) error {
 	client := launchpad.NewClient(creds, nil)
 	resp, err := client.Me()
@@ -170,9 +310,8 @@ func verify(creds *launchpad.Credentials) error {
 	return nil
 }
 
+// showBug fetches and displays a bug by ID, including its tasks and assignees.
 func showBug(client *launchpad.Client, bugID int) error {
-
-	// Fetch the bug.
 	resp, err := client.Get(fmt.Sprintf("/bugs/%d", bugID))
 	if err != nil {
 		return err
@@ -339,6 +478,5 @@ func updateBugTitle(client *launchpad.Client, bugID int, title string) error {
 		return fmt.Errorf("API returned %d: %s", resp.StatusCode, strings.TrimSpace(string(body)))
 	}
 
-	fmt.Printf("Title updated to: %s\n\n", title)
 	return nil
 }
