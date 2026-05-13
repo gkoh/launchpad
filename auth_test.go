@@ -4,6 +4,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"net/url"
+	"strings"
 	"testing"
 )
 
@@ -151,7 +152,7 @@ func TestSignRequest(t *testing.T) {
 		`oauth_token="tok"`,
 		`oauth_signature_method="PLAINTEXT"`,
 	} {
-		if !contains(auth, want) {
+		if !strings.Contains(auth, want) {
 			t.Errorf("Authorization header missing %q\ngot: %s", want, auth)
 		}
 	}
@@ -164,17 +165,4 @@ func TestOAuthSignature(t *testing.T) {
 	if got := oauthSignature("secret"); got != "&secret" {
 		t.Errorf("oauthSignature('secret') = %q, want %q", got, "&secret")
 	}
-}
-
-func contains(s, substr string) bool {
-	return len(s) >= len(substr) && (s == substr || len(s) > 0 && containsStr(s, substr))
-}
-
-func containsStr(s, sub string) bool {
-	for i := 0; i <= len(s)-len(sub); i++ {
-		if s[i:i+len(sub)] == sub {
-			return true
-		}
-	}
-	return false
 }
