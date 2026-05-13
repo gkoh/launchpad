@@ -63,7 +63,7 @@ type Branch struct {
 	SubscribersCollectionLink       Link            `json:"subscribers_collection_link"`
 	SubscriptionsCollectionLink     Link            `json:"subscriptions_collection_link"`
 	UniqueName                      string          `json:"unique_name"`
-	URL                             string          `json:"url,omitempty"`
+	URL                             Link            `json:"url"`
 	WebLink                         Link            `json:"web_link"`
 	WebhooksCollectionLink          Link            `json:"webhooks_collection_link"`
 	Whiteboard                      string          `json:"whiteboard,omitempty"`

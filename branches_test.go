@@ -113,7 +113,7 @@ func TestBranchJSON(t *testing.T) {
 		SubscribersCollectionLink:       NewLink("https://api.launchpad.net/devel/~user/project/trunk/subscribers"),
 		SubscriptionsCollectionLink:     NewLink("https://api.launchpad.net/devel/~user/project/trunk/subscriptions"),
 		UniqueName:                      "~user/project/trunk",
-		URL:                             "",
+		URL:                             Link{},
 		WebLink:                         NewLink("https://code.launchpad.net/~user/project/trunk"),
 		WebhooksCollectionLink:          NewLink("https://api.launchpad.net/devel/~user/project/trunk/webhooks"),
 		Whiteboard:                      "Some notes",
