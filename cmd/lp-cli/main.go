@@ -45,6 +45,10 @@ const statusContentReturned = 209
 // for a bug description before truncating.
 const maxDescriptionLength = 200
 
+// maxCommentLength is the maximum number of characters to display
+// for a comment before truncating.
+const maxCommentLength = 500
+
 func main() {
 	globalFlags := flag.NewFlagSet("lp-cli", flag.ContinueOnError)
 	consumerKey := globalFlags.String("consumer", "lp-cli", "OAuth consumer key (application name)")
@@ -401,19 +405,16 @@ func cmdSearchBug(credsPath, consumerKey string, args []string) {
 		return
 	}
 
-	fmt.Printf("Found %d bug task(s):\n\n", len(collection.Entries))
-	for i, task := range collection.Entries {
-		if i > 0 {
-			fmt.Println()
-		}
-		fmt.Printf("  %s\n", task.Title)
-		fmt.Printf("    Target:     %s\n", task.BugTargetDisplayName)
-		fmt.Printf("    Status:     %s\n", task.Status)
-		fmt.Printf("    Importance: %s\n", task.Importance)
+	fmt.Printf("# Search Results (%d)\n", len(collection.Entries))
+	for _, task := range collection.Entries {
+		fmt.Printf("\n## %s\n\n", task.Title)
+		fmt.Printf("- **Target:** %s\n", task.BugTargetDisplayName)
+		fmt.Printf("- **Status:** %s\n", task.Status)
+		fmt.Printf("- **Importance:** %s\n", task.Importance)
 		if task.AssigneeLink != "" {
-			fmt.Printf("    Assignee:   %s\n", task.AssigneeLink)
+			fmt.Printf("- **Assignee:** %s\n", task.AssigneeLink)
 		}
-		fmt.Printf("    Web:        %s\n", task.WebLink)
+		fmt.Printf("- **Web:** %s\n", task.WebLink)
 	}
 }
 
@@ -474,26 +475,28 @@ func showBug(client *launchpad.Client, bugID int, verbose bool) error {
 	}
 
 	// Display bug summary.
-	fmt.Printf("Bug #%d: %s\n", bug.ID, bug.Title)
-	fmt.Printf("Info type:   %s\n", bug.InformationType)
-	fmt.Printf("Lock status: %s\n", bug.LockStatus)
-	fmt.Printf("Heat:        %d\n", bug.Heat)
+	fmt.Printf("# Bug #%d: %s\n\n", bug.ID, bug.Title)
+	fmt.Printf("- **Info type:** %s\n", bug.InformationType)
+	fmt.Printf("- **Lock status:** %s\n", bug.LockStatus)
+	fmt.Printf("- **Heat:** %d\n", bug.Heat)
 	if len(bug.Tags) > 0 {
-		fmt.Printf("Tags:        %s\n", strings.Join(bug.Tags, ", "))
+		fmt.Printf("- **Tags:** %s\n", strings.Join(bug.Tags, ", "))
 	}
 	if bug.DateCreated != nil {
-		fmt.Printf("Created:     %s\n", bug.DateCreated.Format("2006-01-02 15:04:05"))
+		fmt.Printf("- **Created:** %s\n", bug.DateCreated.Format("2006-01-02 15:04:05"))
 	}
 	if bug.DateLastUpdated != nil {
-		fmt.Printf("Updated:     %s\n", bug.DateLastUpdated.Format("2006-01-02 15:04:05"))
+		fmt.Printf("- **Updated:** %s\n", bug.DateLastUpdated.Format("2006-01-02 15:04:05"))
 	}
-	fmt.Printf("Messages:    %d\n", bug.MessageCount)
+	fmt.Printf("- **Messages:** %d\n", bug.MessageCount)
+	fmt.Printf("- **Web:** %s\n", bug.WebLink)
+
 	if bug.Description != "" {
 		desc := bug.Description
 		if len(desc) > maxDescriptionLength {
 			desc = desc[:maxDescriptionLength] + "..."
 		}
-		fmt.Printf("Description: %s\n", desc)
+		fmt.Printf("\n## Description\n\n%s\n", desc)
 	}
 
 	// Fetch bug tasks.
@@ -505,22 +508,19 @@ func showBug(client *launchpad.Client, bugID int, verbose bool) error {
 			// Resolve assignees.
 			assignees := resolveAssignees(client, tasks)
 
-			fmt.Println()
-			fmt.Println("Tasks:")
+			fmt.Printf("\n## Tasks\n")
 			for _, task := range tasks {
-				fmt.Printf("  %s\n", task.BugTargetDisplayName)
-				fmt.Printf("    Status:     %s\n", task.Status)
-				fmt.Printf("    Importance: %s\n", task.Importance)
+				fmt.Printf("\n### %s\n\n", task.BugTargetDisplayName)
+				fmt.Printf("- **Status:** %s\n", task.Status)
+				fmt.Printf("- **Importance:** %s\n", task.Importance)
 				if name, ok := assignees[task.AssigneeLink]; ok {
-					fmt.Printf("    Assignee:   %s\n", name)
+					fmt.Printf("- **Assignee:** %s\n", name)
 				} else {
-					fmt.Printf("    Assignee:   unassigned\n")
+					fmt.Printf("- **Assignee:** unassigned\n")
 				}
 			}
 		}
 	}
-
-	fmt.Printf("\nWeb:         %s\n", bug.WebLink)
 
 	// Fetch and display comments when verbose.
 	if verbose && bug.MessagesCollectionLink != "" {
@@ -531,7 +531,7 @@ func showBug(client *launchpad.Client, bugID int, verbose bool) error {
 			// Resolve owner display names.
 			owners := resolveOwners(client, messages)
 
-			fmt.Printf("\nComments (%d):\n", len(messages))
+			fmt.Printf("\n## Comments (%d)\n", len(messages))
 			for i, msg := range messages {
 				owner := msg.OwnerLink
 				if name, ok := owners[msg.OwnerLink]; ok {
@@ -541,19 +541,16 @@ func showBug(client *launchpad.Client, bugID int, verbose bool) error {
 				if msg.DateCreated != nil {
 					date = msg.DateCreated.Format("2006-01-02 15:04:05")
 				}
-				fmt.Printf("\n  #%d by %s on %s:\n", i+1, owner, date)
+				fmt.Printf("\n### #%d by %s on %s\n\n", i+1, owner, date)
 				if msg.Subject != "" {
-					fmt.Printf("    Subject: %s\n", msg.Subject)
+					fmt.Printf("**Subject:** %s\n\n", msg.Subject)
 				}
 				content := msg.Content
-				if len(content) > 500 {
-					content = content[:500] + "..."
+				if len(content) > maxCommentLength {
+					content = content[:maxCommentLength] + "..."
 				}
 				if content != "" {
-					// Indent each line of the content.
-					for _, line := range strings.Split(content, "\n") {
-						fmt.Printf("    %s\n", line)
-					}
+					fmt.Printf("%s\n", content)
 				}
 			}
 		}
