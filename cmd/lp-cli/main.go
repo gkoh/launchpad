@@ -92,7 +92,7 @@ Commands:
     -permission <level>          Permission level (default: READ_PRIVATE)
 
   get <resource> [flags]         Fetch and display a resource
-    bug -id <int>                Query and display a bug by ID
+    bug -id <int> [-verbose]     Query and display a bug by ID
 
   set <resource> [flags]         Update a resource
     bug -id <int> [-title <s>]   Update bug fields
@@ -206,10 +206,11 @@ func cmdGet(credsPath, consumerKey string, args []string) {
 	}
 }
 
-// cmdGetBug handles "get bug -id <int>".
+// cmdGetBug handles "get bug -id <int> [-verbose]".
 func cmdGetBug(credsPath, consumerKey string, args []string) {
 	fs := flag.NewFlagSet("get bug", flag.ExitOnError)
 	bugID := fs.Int("id", 0, "Bug ID (required)")
+	verbose := fs.Bool("verbose", false, "Show all comments")
 	fs.Parse(args)
 
 	if *bugID <= 0 {
@@ -225,7 +226,7 @@ func cmdGetBug(credsPath, consumerKey string, args []string) {
 	}
 	client := launchpad.NewClient(creds, nil)
 
-	if err := showBug(client, *bugID); err != nil {
+	if err := showBug(client, *bugID, *verbose); err != nil {
 		fmt.Fprintf(os.Stderr, "Error: %v\n", err)
 		os.Exit(1)
 	}
@@ -283,7 +284,7 @@ func cmdSetBug(credsPath, consumerKey string, args []string) {
 	}
 
 	// Display updated bug.
-	if err := showBug(client, *bugID); err != nil {
+	if err := showBug(client, *bugID, false); err != nil {
 		fmt.Fprintf(os.Stderr, "Error: %v\n", err)
 		os.Exit(1)
 	}
@@ -442,7 +443,8 @@ func verify(creds *launchpad.Credentials) error {
 }
 
 // showBug fetches and displays a bug by ID, including its tasks and assignees.
-func showBug(client *launchpad.Client, bugID int) error {
+// When verbose is true, all comments are fetched and displayed.
+func showBug(client *launchpad.Client, bugID int, verbose bool) error {
 	resp, err := client.Get(fmt.Sprintf("/bugs/%d", bugID))
 	if err != nil {
 		return err
@@ -511,6 +513,43 @@ func showBug(client *launchpad.Client, bugID int) error {
 	}
 
 	fmt.Printf("\nWeb:         %s\n", bug.WebLink)
+
+	// Fetch and display comments when verbose.
+	if verbose && bug.MessagesCollectionLink != "" {
+		messages, err := fetchAllMessages(client, bug.MessagesCollectionLink)
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "\nWarning: could not fetch comments: %v\n", err)
+		} else if len(messages) > 0 {
+			// Resolve owner display names.
+			owners := resolveOwners(client, messages)
+
+			fmt.Printf("\nComments (%d):\n", len(messages))
+			for i, msg := range messages {
+				owner := msg.OwnerLink
+				if name, ok := owners[msg.OwnerLink]; ok {
+					owner = name
+				}
+				date := "unknown"
+				if msg.DateCreated != nil {
+					date = msg.DateCreated.Format("2006-01-02 15:04:05")
+				}
+				fmt.Printf("\n  #%d by %s on %s:\n", i+1, owner, date)
+				if msg.Subject != "" {
+					fmt.Printf("    Subject: %s\n", msg.Subject)
+				}
+				content := msg.Content
+				if len(content) > 500 {
+					content = content[:500] + "..."
+				}
+				if content != "" {
+					// Indent each line of the content.
+					for _, line := range strings.Split(content, "\n") {
+						fmt.Printf("    %s\n", line)
+					}
+				}
+			}
+		}
+	}
 
 	return nil
 }
@@ -610,4 +649,87 @@ func updateBugTitle(client *launchpad.Client, bugID int, title string) error {
 	}
 
 	return nil
+}
+
+// fetchAllMessages fetches all messages for a bug, following pagination links.
+func fetchAllMessages(client *launchpad.Client, url string) ([]launchpad.Message, error) {
+	var all []launchpad.Message
+
+	for url != "" {
+		req, err := http.NewRequest(http.MethodGet, url, nil)
+		if err != nil {
+			return all, err
+		}
+		req.Header.Set("Accept", "application/json")
+
+		resp, err := client.Do(req)
+		if err != nil {
+			return all, err
+		}
+
+		body, err := io.ReadAll(resp.Body)
+		resp.Body.Close()
+		if err != nil {
+			return all, err
+		}
+
+		if resp.StatusCode != 200 {
+			return all, fmt.Errorf("messages returned %d: %s", resp.StatusCode, strings.TrimSpace(string(body)))
+		}
+
+		var collection launchpad.MessageCollection
+		if err := json.Unmarshal(body, &collection); err != nil {
+			return all, err
+		}
+
+		all = append(all, collection.Entries...)
+		url = collection.NextCollectionLink
+	}
+
+	return all, nil
+}
+
+// resolveOwners fetches the display name for each unique owner link in messages.
+// Returns a map from owner_link URL to "DisplayName (name)" string.
+func resolveOwners(client *launchpad.Client, messages []launchpad.Message) map[string]string {
+	result := make(map[string]string)
+
+	for _, msg := range messages {
+		if msg.OwnerLink == "" {
+			continue
+		}
+		if _, ok := result[msg.OwnerLink]; ok {
+			continue
+		}
+
+		req, err := http.NewRequest(http.MethodGet, msg.OwnerLink, nil)
+		if err != nil {
+			result[msg.OwnerLink] = msg.OwnerLink
+			continue
+		}
+		req.Header.Set("Accept", "application/json")
+
+		resp, err := client.Do(req)
+		if err != nil {
+			result[msg.OwnerLink] = msg.OwnerLink
+			continue
+		}
+
+		body, err := io.ReadAll(resp.Body)
+		resp.Body.Close()
+		if err != nil || resp.StatusCode != 200 {
+			result[msg.OwnerLink] = msg.OwnerLink
+			continue
+		}
+
+		var person launchpad.Person
+		if err := json.Unmarshal(body, &person); err != nil {
+			result[msg.OwnerLink] = msg.OwnerLink
+			continue
+		}
+
+		result[msg.OwnerLink] = fmt.Sprintf("%s (%s)", person.DisplayName, person.Name)
+	}
+
+	return result
 }
