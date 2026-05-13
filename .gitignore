@@ -1,0 +1,8 @@
+# Binaries
+/lp-cli
+*.exe
+
+# IDE
+.idea/
+.vscode/
+*.swp
