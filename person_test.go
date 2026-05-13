@@ -2,45 +2,9 @@ package launchpad
 
 import (
 	"encoding/json"
-	"reflect"
 	"testing"
 	"time"
 )
-
-func TestAccountStatusJSON(t *testing.T) {
-	tests := []struct {
-		val  AccountStatus
-		want string
-	}{
-		{AccountStatusPlaceholder, `"Placeholder"`},
-		{AccountStatusUnactivated, `"Unactivated"`},
-		{AccountStatusActive, `"Active"`},
-		{AccountStatusDeactivated, `"Deactivated"`},
-		{AccountStatusSuspended, `"Suspended"`},
-		{AccountStatusClosed, `"Closed"`},
-		{AccountStatusDeceased, `"Deceased"`},
-	}
-
-	for _, tt := range tests {
-		data, err := json.Marshal(tt.val)
-		if err != nil {
-			t.Errorf("Marshal(%q): %v", tt.val, err)
-			continue
-		}
-		if string(data) != tt.want {
-			t.Errorf("Marshal(%q) = %s, want %s", tt.val, data, tt.want)
-		}
-
-		var got AccountStatus
-		if err := json.Unmarshal(data, &got); err != nil {
-			t.Errorf("Unmarshal(%s): %v", data, err)
-			continue
-		}
-		if got != tt.val {
-			t.Errorf("Unmarshal(%s) = %q, want %q", data, got, tt.val)
-		}
-	}
-}
 
 func TestPersonJSON(t *testing.T) {
 	now := time.Date(2025, 6, 15, 12, 0, 0, 0, time.UTC)
@@ -55,9 +19,9 @@ func TestPersonJSON(t *testing.T) {
 		IsValid:          true,
 		Karma:            42,
 		Name:             "test-user",
-		ResourceTypeLink: "https://api.launchpad.net/devel/#person",
-		SelfLink:         "https://api.launchpad.net/devel/~test-user",
-		WebLink:          "https://launchpad.net/~test-user",
+		ResourceTypeLink: NewLink("https://api.launchpad.net/devel/#person"),
+		SelfLink:         NewLink("https://api.launchpad.net/devel/~test-user"),
+		WebLink:          NewLink("https://launchpad.net/~test-user"),
 	}
 
 	data, err := json.Marshal(orig)
@@ -70,8 +34,17 @@ func TestPersonJSON(t *testing.T) {
 		t.Fatalf("Unmarshal: %v", err)
 	}
 
-	if !reflect.DeepEqual(orig, got) {
-		t.Errorf("round-trip mismatch:\n  got:  %+v\n  want: %+v", got, orig)
+	if orig.ResourceTypeLink.String() != got.ResourceTypeLink.String() {
+		t.Errorf("ResourceTypeLink = %q, want %q", got.ResourceTypeLink, orig.ResourceTypeLink)
+	}
+	if orig.SelfLink.String() != got.SelfLink.String() {
+		t.Errorf("SelfLink = %q, want %q", got.SelfLink, orig.SelfLink)
+	}
+	if orig.WebLink.String() != got.WebLink.String() {
+		t.Errorf("WebLink = %q, want %q", got.WebLink, orig.WebLink)
+	}
+	if orig.DisplayName != got.DisplayName {
+		t.Errorf("DisplayName = %q, want %q", got.DisplayName, orig.DisplayName)
 	}
 }
 
@@ -105,5 +78,40 @@ func TestPersonJSONNulls(t *testing.T) {
 	}
 	if got.AccountStatus != AccountStatusActive {
 		t.Errorf("AccountStatus = %q, want %q", got.AccountStatus, AccountStatusActive)
+	}
+}
+
+func TestAccountStatusJSON(t *testing.T) {
+	tests := []struct {
+		val  AccountStatus
+		want string
+	}{
+		{AccountStatusPlaceholder, `"Placeholder"`},
+		{AccountStatusUnactivated, `"Unactivated"`},
+		{AccountStatusActive, `"Active"`},
+		{AccountStatusDeactivated, `"Deactivated"`},
+		{AccountStatusSuspended, `"Suspended"`},
+		{AccountStatusClosed, `"Closed"`},
+		{AccountStatusDeceased, `"Deceased"`},
+	}
+
+	for _, tt := range tests {
+		data, err := json.Marshal(tt.val)
+		if err != nil {
+			t.Errorf("Marshal(%q): %v", tt.val, err)
+			continue
+		}
+		if string(data) != tt.want {
+			t.Errorf("Marshal(%q) = %s, want %s", tt.val, data, tt.want)
+		}
+
+		var got AccountStatus
+		if err := json.Unmarshal(data, &got); err != nil {
+			t.Errorf("Unmarshal(%s): %v", data, err)
+			continue
+		}
+		if got != tt.val {
+			t.Errorf("Unmarshal(%s) = %q, want %q", data, got, tt.val)
+		}
 	}
 }

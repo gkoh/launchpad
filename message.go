@@ -7,11 +7,11 @@ type Message struct {
 	Content          string     `json:"content"`
 	DateCreated      *time.Time `json:"date_created,omitempty"`
 	HTTPEtag         string     `json:"http_etag"`
-	OwnerLink        string     `json:"owner_link"`
-	ResourceTypeLink string     `json:"resource_type_link"`
-	SelfLink         string     `json:"self_link"`
+	OwnerLink        Link       `json:"owner_link"`
+	ResourceTypeLink Link       `json:"resource_type_link"`
+	SelfLink         Link       `json:"self_link"`
 	Subject          string     `json:"subject"`
-	WebLink          string     `json:"web_link"`
+	WebLink          Link       `json:"web_link"`
 }
 
 // MessageCollection is a paginated collection of Message entries.

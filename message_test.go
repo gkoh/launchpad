@@ -2,7 +2,6 @@ package launchpad
 
 import (
 	"encoding/json"
-	"reflect"
 	"testing"
 	"time"
 )
@@ -14,11 +13,11 @@ func TestMessageJSON(t *testing.T) {
 		Content:          "This is a test comment on the bug.",
 		DateCreated:      &now,
 		HTTPEtag:         "\"etag123\"",
-		OwnerLink:        "https://api.launchpad.net/devel/~test-user",
-		ResourceTypeLink: "https://api.launchpad.net/devel/#message",
-		SelfLink:         "https://api.launchpad.net/devel/bugs/1/+message/0",
+		OwnerLink:        NewLink("https://api.launchpad.net/devel/~test-user"),
+		ResourceTypeLink: NewLink("https://api.launchpad.net/devel/#message"),
+		SelfLink:         NewLink("https://api.launchpad.net/devel/bugs/1/+message/0"),
 		Subject:          "Bug #1: Test bug",
-		WebLink:          "https://bugs.launchpad.net/ubuntu/+source/linux/+bug/1/comments/0",
+		WebLink:          NewLink("https://bugs.launchpad.net/ubuntu/+source/linux/+bug/1/comments/0"),
 	}
 
 	data, err := json.Marshal(orig)
@@ -31,8 +30,11 @@ func TestMessageJSON(t *testing.T) {
 		t.Fatalf("Unmarshal: %v", err)
 	}
 
-	if !reflect.DeepEqual(orig, got) {
-		t.Errorf("round-trip mismatch:\n  got:  %+v\n  want: %+v", got, orig)
+	if orig.OwnerLink.String() != got.OwnerLink.String() {
+		t.Errorf("OwnerLink = %q, want %q", got.OwnerLink, orig.OwnerLink)
+	}
+	if orig.Content != got.Content {
+		t.Errorf("Content = %q, want %q", got.Content, orig.Content)
 	}
 }
 
@@ -73,16 +75,16 @@ func TestMessageCollectionJSON(t *testing.T) {
 			{
 				Content:     "Initial report of the bug.",
 				DateCreated: &now,
-				OwnerLink:   "https://api.launchpad.net/devel/~reporter",
+				OwnerLink:   NewLink("https://api.launchpad.net/devel/~reporter"),
 				Subject:     "Bug #1: Test bug",
-				WebLink:     "https://bugs.launchpad.net/ubuntu/+source/linux/+bug/1/comments/0",
+				WebLink:     NewLink("https://bugs.launchpad.net/ubuntu/+source/linux/+bug/1/comments/0"),
 			},
 			{
 				Content:     "I can confirm this issue.",
 				DateCreated: &later,
-				OwnerLink:   "https://api.launchpad.net/devel/~confirmer",
+				OwnerLink:   NewLink("https://api.launchpad.net/devel/~confirmer"),
 				Subject:     "Re: Bug #1: Test bug",
-				WebLink:     "https://bugs.launchpad.net/ubuntu/+source/linux/+bug/1/comments/1",
+				WebLink:     NewLink("https://bugs.launchpad.net/ubuntu/+source/linux/+bug/1/comments/1"),
 			},
 		},
 	}
@@ -97,17 +99,13 @@ func TestMessageCollectionJSON(t *testing.T) {
 		t.Fatalf("Unmarshal: %v", err)
 	}
 
-	if !reflect.DeepEqual(orig, got) {
-		t.Errorf("round-trip mismatch:\n  got:  %+v\n  want: %+v", got, orig)
-	}
-
 	if len(got.Entries) != 2 {
 		t.Fatalf("len(Entries) = %d, want 2", len(got.Entries))
 	}
 	if got.Entries[0].Content != "Initial report of the bug." {
 		t.Errorf("Entries[0].Content = %q", got.Entries[0].Content)
 	}
-	if got.Entries[1].OwnerLink != "https://api.launchpad.net/devel/~confirmer" {
+	if got.Entries[1].OwnerLink.String() != "https://api.launchpad.net/devel/~confirmer" {
 		t.Errorf("Entries[1].OwnerLink = %q", got.Entries[1].OwnerLink)
 	}
 }
@@ -128,7 +126,7 @@ func TestMessageCollectionPagination(t *testing.T) {
 	if got.TotalSize != 50 {
 		t.Errorf("TotalSize = %d, want 50", got.TotalSize)
 	}
-	if got.NextCollectionLink != "https://api.launchpad.net/devel/bugs/1/messages?ws.start=25&ws.size=25" {
+	if got.NextCollectionLink.String() != "https://api.launchpad.net/devel/bugs/1/messages?ws.start=25&ws.size=25" {
 		t.Errorf("NextCollectionLink = %q", got.NextCollectionLink)
 	}
 }

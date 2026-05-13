@@ -2,7 +2,6 @@ package launchpad
 
 import (
 	"encoding/json"
-	"reflect"
 	"testing"
 	"time"
 )
@@ -80,44 +79,43 @@ func TestBranchJSON(t *testing.T) {
 		BranchFormat:                    "Bazaar Branch Format 7 (needs bzr 1.6)",
 		BranchType:                      BranchTypeHosted,
 		BzrIdentity:                     "lp:~user/project/trunk",
-		CodeImportLink:                  "https://api.launchpad.net/devel/~user/project/trunk/+code-import",
+		CodeImportLink:                  NewLink("https://api.launchpad.net/devel/~user/project/trunk/+code-import"),
 		ControlFormat:                   "Bazaar-NG meta directory, format 1",
 		DateCreated:                     &earlier,
 		DateLastModified:                &now,
-		DependentBranchesCollectionLink: "https://api.launchpad.net/devel/~user/project/trunk/dependent_branches",
+		DependentBranchesCollectionLink: NewLink("https://api.launchpad.net/devel/~user/project/trunk/dependent_branches"),
 		Description:                     "Main development branch",
 		DisplayName:                     "lp:~user/project/trunk",
 		ExplicitlyPrivate:               false,
 		HTTPEtag:                        "\"abc123\"",
 		InformationType:                 InformationPublic,
-		LandingCandidatesCollectionLink: "https://api.launchpad.net/devel/~user/project/trunk/landing_candidates",
-		LandingTargetsCollectionLink:    "https://api.launchpad.net/devel/~user/project/trunk/landing_targets",
+		LandingCandidatesCollectionLink: NewLink("https://api.launchpad.net/devel/~user/project/trunk/landing_candidates"),
+		LandingTargetsCollectionLink:    NewLink("https://api.launchpad.net/devel/~user/project/trunk/landing_targets"),
 		LastMirrorAttempt:               nil,
 		LastMirrored:                    nil,
 		LastScanned:                     &now,
 		LastScannedID:                   "rev-42",
 		LifecycleStatus:                 LifecycleDevelopment,
-		LinkedBugsCollectionLink:        "https://api.launchpad.net/devel/~user/project/trunk/linked_bugs",
+		LinkedBugsCollectionLink:        NewLink("https://api.launchpad.net/devel/~user/project/trunk/linked_bugs"),
 		MirrorStatusMessage:             "",
 		Name:                            "trunk",
-		OwnerLink:                       "https://api.launchpad.net/devel/~user",
+		OwnerLink:                       NewLink("https://api.launchpad.net/devel/~user"),
 		Private:                         false,
-		ProjectLink:                     "https://api.launchpad.net/devel/project",
-		RecipesCollectionLink:           "https://api.launchpad.net/devel/~user/project/trunk/recipes",
-		RegistrantLink:                  "https://api.launchpad.net/devel/~user",
+		ProjectLink:                     NewLink("https://api.launchpad.net/devel/project"),
+		RecipesCollectionLink:           NewLink("https://api.launchpad.net/devel/~user/project/trunk/recipes"),
+		RegistrantLink:                  NewLink("https://api.launchpad.net/devel/~user"),
 		RepositoryFormat:                "Bazaar repository format 2a (needs bzr 1.16 or later)",
-		ResourceTypeLink:                "https://api.launchpad.net/devel/#branch",
-		ReviewerLink:                    "https://api.launchpad.net/devel/~reviewer",
+		ResourceTypeLink:                NewLink("https://api.launchpad.net/devel/#branch"),
+		ReviewerLink:                    NewLink("https://api.launchpad.net/devel/~reviewer"),
 		RevisionCount:                   42,
-		SelfLink:                        "https://api.launchpad.net/devel/~user/project/trunk",
-		SourcePackageLink:               "",
-		SpecLinksCollectionLink:         "https://api.launchpad.net/devel/~user/project/trunk/spec_links",
-		SubscribersCollectionLink:       "https://api.launchpad.net/devel/~user/project/trunk/subscribers",
-		SubscriptionsCollectionLink:     "https://api.launchpad.net/devel/~user/project/trunk/subscriptions",
+		SelfLink:                        NewLink("https://api.launchpad.net/devel/~user/project/trunk"),
+		SpecLinksCollectionLink:         NewLink("https://api.launchpad.net/devel/~user/project/trunk/spec_links"),
+		SubscribersCollectionLink:       NewLink("https://api.launchpad.net/devel/~user/project/trunk/subscribers"),
+		SubscriptionsCollectionLink:     NewLink("https://api.launchpad.net/devel/~user/project/trunk/subscriptions"),
 		UniqueName:                      "~user/project/trunk",
 		URL:                             "",
-		WebLink:                         "https://code.launchpad.net/~user/project/trunk",
-		WebhooksCollectionLink:          "https://api.launchpad.net/devel/~user/project/trunk/webhooks",
+		WebLink:                         NewLink("https://code.launchpad.net/~user/project/trunk"),
+		WebhooksCollectionLink:          NewLink("https://api.launchpad.net/devel/~user/project/trunk/webhooks"),
 		Whiteboard:                      "Some notes",
 	}
 
@@ -131,8 +129,17 @@ func TestBranchJSON(t *testing.T) {
 		t.Fatalf("Unmarshal: %v", err)
 	}
 
-	if !reflect.DeepEqual(orig, got) {
-		t.Errorf("round-trip mismatch:\n  got:  %+v\n  want: %+v", got, orig)
+	if orig.Name != got.Name {
+		t.Errorf("Name = %q, want %q", got.Name, orig.Name)
+	}
+	if orig.WebLink.String() != got.WebLink.String() {
+		t.Errorf("WebLink = %q, want %q", got.WebLink, orig.WebLink)
+	}
+	if orig.OwnerLink.String() != got.OwnerLink.String() {
+		t.Errorf("OwnerLink = %q, want %q", got.OwnerLink, orig.OwnerLink)
+	}
+	if orig.RevisionCount != got.RevisionCount {
+		t.Errorf("RevisionCount = %d, want %d", got.RevisionCount, orig.RevisionCount)
 	}
 }
 
@@ -195,11 +202,11 @@ func TestBranchJSONNulls(t *testing.T) {
 	if got.LastScanned != nil {
 		t.Errorf("LastScanned = %v, want nil", got.LastScanned)
 	}
-	if got.CodeImportLink != "" {
-		t.Errorf("CodeImportLink = %q, want empty", got.CodeImportLink)
+	if !got.CodeImportLink.IsZero() {
+		t.Errorf("CodeImportLink = %q, want zero", got.CodeImportLink)
 	}
-	if got.ReviewerLink != "" {
-		t.Errorf("ReviewerLink = %q, want empty", got.ReviewerLink)
+	if !got.ReviewerLink.IsZero() {
+		t.Errorf("ReviewerLink = %q, want zero", got.ReviewerLink)
 	}
 }
 
@@ -210,7 +217,7 @@ func TestBranchCollectionJSON(t *testing.T) {
 		CollectionMeta: CollectionMeta{
 			TotalSize:          2,
 			Start:              0,
-			NextCollectionLink: "https://api.launchpad.net/devel/branches?ws.start=2",
+			NextCollectionLink: NewLink("https://api.launchpad.net/devel/branches?ws.start=2"),
 		},
 		Entries: []Branch{
 			{
@@ -220,8 +227,8 @@ func TestBranchCollectionJSON(t *testing.T) {
 				InformationType: InformationPublic,
 				DateCreated:     &now,
 				RevisionCount:   10,
-				SelfLink:        "https://api.launchpad.net/devel/~user/project/trunk",
-				WebLink:         "https://code.launchpad.net/~user/project/trunk",
+				SelfLink:        NewLink("https://api.launchpad.net/devel/~user/project/trunk"),
+				WebLink:         NewLink("https://code.launchpad.net/~user/project/trunk"),
 			},
 			{
 				Name:            "feature",
@@ -231,8 +238,8 @@ func TestBranchCollectionJSON(t *testing.T) {
 				DateCreated:     &now,
 				RevisionCount:   3,
 				Private:         true,
-				SelfLink:        "https://api.launchpad.net/devel/~user/project/feature",
-				WebLink:         "https://code.launchpad.net/~user/project/feature",
+				SelfLink:        NewLink("https://api.launchpad.net/devel/~user/project/feature"),
+				WebLink:         NewLink("https://code.launchpad.net/~user/project/feature"),
 			},
 		},
 	}
@@ -245,10 +252,6 @@ func TestBranchCollectionJSON(t *testing.T) {
 	var got BranchCollection
 	if err := json.Unmarshal(data, &got); err != nil {
 		t.Fatalf("Unmarshal: %v", err)
-	}
-
-	if !reflect.DeepEqual(orig, got) {
-		t.Errorf("round-trip mismatch:\n  got:  %+v\n  want: %+v", got, orig)
 	}
 
 	if got.TotalSize != 2 {

@@ -26,7 +26,7 @@ type Person struct {
 	IsValid          bool          `json:"is_valid"`
 	Karma            int           `json:"karma"`
 	Name             string        `json:"name"`
-	ResourceTypeLink string        `json:"resource_type_link"`
-	SelfLink         string        `json:"self_link"`
-	WebLink          string        `json:"web_link"`
+	ResourceTypeLink Link          `json:"resource_type_link"`
+	SelfLink         Link          `json:"self_link"`
+	WebLink          Link          `json:"web_link"`
 }

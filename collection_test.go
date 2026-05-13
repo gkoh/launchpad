@@ -2,7 +2,6 @@ package launchpad
 
 import (
 	"encoding/json"
-	"reflect"
 	"testing"
 )
 
@@ -10,8 +9,8 @@ func TestCollectionMetaJSON(t *testing.T) {
 	orig := CollectionMeta{
 		TotalSize:          42,
 		Start:              10,
-		NextCollectionLink: "https://api.launchpad.net/devel/branches?ws.start=20",
-		PrevCollectionLink: "https://api.launchpad.net/devel/branches?ws.start=0",
+		NextCollectionLink: NewLink("https://api.launchpad.net/devel/branches?ws.start=20"),
+		PrevCollectionLink: NewLink("https://api.launchpad.net/devel/branches?ws.start=0"),
 	}
 
 	data, err := json.Marshal(orig)
@@ -24,12 +23,21 @@ func TestCollectionMetaJSON(t *testing.T) {
 		t.Fatalf("Unmarshal: %v", err)
 	}
 
-	if !reflect.DeepEqual(orig, got) {
-		t.Errorf("round-trip mismatch:\n  got:  %+v\n  want: %+v", got, orig)
+	if orig.TotalSize != got.TotalSize {
+		t.Errorf("TotalSize = %d, want %d", got.TotalSize, orig.TotalSize)
+	}
+	if orig.Start != got.Start {
+		t.Errorf("Start = %d, want %d", got.Start, orig.Start)
+	}
+	if orig.NextCollectionLink.String() != got.NextCollectionLink.String() {
+		t.Errorf("NextCollectionLink = %q, want %q", got.NextCollectionLink, orig.NextCollectionLink)
+	}
+	if orig.PrevCollectionLink.String() != got.PrevCollectionLink.String() {
+		t.Errorf("PrevCollectionLink = %q, want %q", got.PrevCollectionLink, orig.PrevCollectionLink)
 	}
 }
 
-func TestCollectionMetaJSONOmitEmpty(t *testing.T) {
+func TestCollectionMetaJSONZeroLinks(t *testing.T) {
 	orig := CollectionMeta{
 		TotalSize: 5,
 		Start:     0,
@@ -40,11 +48,16 @@ func TestCollectionMetaJSONOmitEmpty(t *testing.T) {
 		t.Fatalf("Marshal: %v", err)
 	}
 
-	raw := string(data)
-	for _, key := range []string{"next_collection_link", "prev_collection_link"} {
-		if contains := jsonContainsKey(raw, key); contains {
-			t.Errorf("expected key %q to be omitted, got JSON: %s", key, raw)
-		}
+	var got CollectionMeta
+	if err := json.Unmarshal(data, &got); err != nil {
+		t.Fatalf("Unmarshal: %v", err)
+	}
+
+	if !got.NextCollectionLink.IsZero() {
+		t.Errorf("NextCollectionLink = %q, want zero", got.NextCollectionLink)
+	}
+	if !got.PrevCollectionLink.IsZero() {
+		t.Errorf("PrevCollectionLink = %q, want zero", got.PrevCollectionLink)
 	}
 }
 

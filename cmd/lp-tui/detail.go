@@ -166,7 +166,7 @@ func (m detailModel) renderContent() string {
 			b.WriteString(fmt.Sprintf("  %s %s\n", labelStyle.Render("Status:"), task.Status))
 			b.WriteString(fmt.Sprintf("  %s %s\n", labelStyle.Render("Importance:"), task.Importance))
 			assignee := "unassigned"
-			if name, ok := m.assignees[task.AssigneeLink]; ok && task.AssigneeLink != "" {
+			if name, ok := m.assignees[task.AssigneeLink.String()]; ok && !task.AssigneeLink.IsZero() {
 				assignee = name
 			}
 			b.WriteString(fmt.Sprintf("  %s %s\n", labelStyle.Render("Assignee:"), assignee))
@@ -179,8 +179,8 @@ func (m detailModel) renderContent() string {
 		b.WriteString(subtitleStyle.Render(fmt.Sprintf("Comments (%d)", len(m.messages))))
 		b.WriteString("\n")
 		for i, msg := range m.messages {
-			owner := msg.OwnerLink
-			if name, ok := m.owners[msg.OwnerLink]; ok {
+			owner := msg.OwnerLink.String()
+			if name, ok := m.owners[msg.OwnerLink.String()]; ok {
 				owner = name
 			}
 			date := "unknown"

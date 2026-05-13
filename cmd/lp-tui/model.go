@@ -186,7 +186,7 @@ func fetchBugTasksCmd(client *launchpad.Client, tasksURL string) tea.Cmd {
 
 		// Resolve assignees.
 		assignees := resolvePersonLinks(client, uniqueLinks(collection.Entries, func(t launchpad.BugTask) string {
-			return t.AssigneeLink
+			return t.AssigneeLink.String()
 		}))
 
 		return bugTasksMsg{tasks: collection.Entries, assignees: assignees}
@@ -226,12 +226,12 @@ func fetchCommentsCmd(client *launchpad.Client, messagesURL string) tea.Cmd {
 			}
 
 			allMessages = append(allMessages, collection.Entries...)
-			url = collection.NextCollectionLink
+			url = collection.NextCollectionLink.String()
 		}
 
 		// Resolve owners.
 		owners := resolvePersonLinks(client, uniqueLinks(allMessages, func(m launchpad.Message) string {
-			return m.OwnerLink
+			return m.OwnerLink.String()
 		}))
 
 		return commentsMsg{messages: allMessages, owners: owners}
@@ -349,11 +349,11 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 		// Kick off tasks and comments fetch.
 		var cmds []tea.Cmd
-		if msg.bug.BugTasksCollectionLink != "" {
-			cmds = append(cmds, fetchBugTasksCmd(m.client, msg.bug.BugTasksCollectionLink))
+		if !msg.bug.BugTasksCollectionLink.IsZero() {
+			cmds = append(cmds, fetchBugTasksCmd(m.client, msg.bug.BugTasksCollectionLink.String()))
 		}
-		if msg.bug.MessagesCollectionLink != "" {
-			cmds = append(cmds, fetchCommentsCmd(m.client, msg.bug.MessagesCollectionLink))
+		if !msg.bug.MessagesCollectionLink.IsZero() {
+			cmds = append(cmds, fetchCommentsCmd(m.client, msg.bug.MessagesCollectionLink.String()))
 		}
 		if len(cmds) > 0 {
 			return m, tea.Batch(cmds...)

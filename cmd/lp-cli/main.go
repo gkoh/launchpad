@@ -411,7 +411,7 @@ func cmdSearchBug(credsPath, consumerKey string, args []string) {
 		fmt.Printf("- **Target:** %s\n", task.BugTargetDisplayName)
 		fmt.Printf("- **Status:** %s\n", task.Status)
 		fmt.Printf("- **Importance:** %s\n", task.Importance)
-		if task.AssigneeLink != "" {
+		if !task.AssigneeLink.IsZero() {
 			fmt.Printf("- **Assignee:** %s\n", task.AssigneeLink)
 		}
 		fmt.Printf("- **Web:** %s\n", task.WebLink)
@@ -438,9 +438,9 @@ func verify(creds *launchpad.Credentials) error {
 	}
 
 	var user struct {
-		DisplayName string `json:"display_name"`
-		Name        string `json:"name"`
-		WebLink     string `json:"web_link"`
+		DisplayName string         `json:"display_name"`
+		Name        string         `json:"name"`
+		WebLink     launchpad.Link `json:"web_link"`
 	}
 	if err := json.Unmarshal(body, &user); err != nil {
 		return fmt.Errorf("parsing response: %w", err)
@@ -500,8 +500,8 @@ func showBug(client *launchpad.Client, bugID int, verbose bool) error {
 	}
 
 	// Fetch bug tasks.
-	if bug.BugTasksCollectionLink != "" {
-		tasks, err := fetchBugTasks(client, bug.BugTasksCollectionLink)
+	if !bug.BugTasksCollectionLink.IsZero() {
+		tasks, err := fetchBugTasks(client, bug.BugTasksCollectionLink.String())
 		if err != nil {
 			fmt.Fprintf(os.Stderr, "\nWarning: could not fetch bug tasks: %v\n", err)
 		} else if len(tasks) > 0 {
@@ -513,7 +513,7 @@ func showBug(client *launchpad.Client, bugID int, verbose bool) error {
 				fmt.Printf("\n### %s\n\n", task.BugTargetDisplayName)
 				fmt.Printf("- **Status:** %s\n", task.Status)
 				fmt.Printf("- **Importance:** %s\n", task.Importance)
-				if name, ok := assignees[task.AssigneeLink]; ok {
+				if name, ok := assignees[task.AssigneeLink.String()]; ok {
 					fmt.Printf("- **Assignee:** %s\n", name)
 				} else {
 					fmt.Printf("- **Assignee:** unassigned\n")
@@ -523,8 +523,8 @@ func showBug(client *launchpad.Client, bugID int, verbose bool) error {
 	}
 
 	// Fetch and display comments when verbose.
-	if verbose && bug.MessagesCollectionLink != "" {
-		messages, err := fetchAllMessages(client, bug.MessagesCollectionLink)
+	if verbose && !bug.MessagesCollectionLink.IsZero() {
+		messages, err := fetchAllMessages(client, bug.MessagesCollectionLink.String())
 		if err != nil {
 			fmt.Fprintf(os.Stderr, "\nWarning: could not fetch comments: %v\n", err)
 		} else if len(messages) > 0 {
@@ -533,8 +533,8 @@ func showBug(client *launchpad.Client, bugID int, verbose bool) error {
 
 			fmt.Printf("\n## Comments (%d)\n", len(messages))
 			for i, msg := range messages {
-				owner := msg.OwnerLink
-				if name, ok := owners[msg.OwnerLink]; ok {
+			owner := msg.OwnerLink.String()
+			if name, ok := owners[msg.OwnerLink.String()]; ok {
 					owner = name
 				}
 				date := "unknown"
@@ -593,40 +593,41 @@ func resolveAssignees(client *launchpad.Client, tasks []launchpad.BugTask) map[s
 	result := make(map[string]string)
 
 	for _, task := range tasks {
-		if task.AssigneeLink == "" {
+		if task.AssigneeLink.IsZero() {
 			continue
 		}
-		if _, ok := result[task.AssigneeLink]; ok {
+		link := task.AssigneeLink.String()
+		if _, ok := result[link]; ok {
 			continue // already resolved
 		}
 
-		req, err := http.NewRequest(http.MethodGet, task.AssigneeLink, nil)
+		req, err := http.NewRequest(http.MethodGet, link, nil)
 		if err != nil {
-			result[task.AssigneeLink] = task.AssigneeLink
+			result[link] = link
 			continue
 		}
 		req.Header.Set("Accept", "application/json")
 
 		resp, err := client.Do(req)
 		if err != nil {
-			result[task.AssigneeLink] = task.AssigneeLink
+			result[link] = link
 			continue
 		}
 
 		body, err := io.ReadAll(resp.Body)
 		resp.Body.Close()
 		if err != nil || resp.StatusCode != http.StatusOK {
-			result[task.AssigneeLink] = task.AssigneeLink
+			result[link] = link
 			continue
 		}
 
 		var person launchpad.Person
 		if err := json.Unmarshal(body, &person); err != nil {
-			result[task.AssigneeLink] = task.AssigneeLink
+			result[link] = link
 			continue
 		}
 
-		result[task.AssigneeLink] = fmt.Sprintf("%s (%s)", person.DisplayName, person.Name)
+		result[link] = fmt.Sprintf("%s (%s)", person.DisplayName, person.Name)
 	}
 
 	return result
@@ -685,7 +686,7 @@ func fetchAllMessages(client *launchpad.Client, url string) ([]launchpad.Message
 		}
 
 		all = append(all, collection.Entries...)
-		url = collection.NextCollectionLink
+		url = collection.NextCollectionLink.String()
 	}
 
 	return all, nil
@@ -697,40 +698,41 @@ func resolveOwners(client *launchpad.Client, messages []launchpad.Message) map[s
 	result := make(map[string]string)
 
 	for _, msg := range messages {
-		if msg.OwnerLink == "" {
+		if msg.OwnerLink.IsZero() {
 			continue
 		}
-		if _, ok := result[msg.OwnerLink]; ok {
+		link := msg.OwnerLink.String()
+		if _, ok := result[link]; ok {
 			continue
 		}
 
-		req, err := http.NewRequest(http.MethodGet, msg.OwnerLink, nil)
+		req, err := http.NewRequest(http.MethodGet, link, nil)
 		if err != nil {
-			result[msg.OwnerLink] = msg.OwnerLink
+			result[link] = link
 			continue
 		}
 		req.Header.Set("Accept", "application/json")
 
 		resp, err := client.Do(req)
 		if err != nil {
-			result[msg.OwnerLink] = msg.OwnerLink
+			result[link] = link
 			continue
 		}
 
 		body, err := io.ReadAll(resp.Body)
 		resp.Body.Close()
 		if err != nil || resp.StatusCode != http.StatusOK {
-			result[msg.OwnerLink] = msg.OwnerLink
+			result[link] = link
 			continue
 		}
 
 		var person launchpad.Person
 		if err := json.Unmarshal(body, &person); err != nil {
-			result[msg.OwnerLink] = msg.OwnerLink
+			result[link] = link
 			continue
 		}
 
-		result[msg.OwnerLink] = fmt.Sprintf("%s (%s)", person.DisplayName, person.Name)
+		result[link] = fmt.Sprintf("%s (%s)", person.DisplayName, person.Name)
 	}
 
 	return result

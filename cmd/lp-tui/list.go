@@ -36,7 +36,7 @@ func (i bugTaskItem) FilterValue() string {
 
 // bugID extracts the bug ID from the BugLink URL.
 func (i bugTaskItem) bugID() int {
-	base := path.Base(i.task.BugLink)
+	base := path.Base(i.task.BugLink.String())
 	id, _ := strconv.Atoi(base)
 	return id
 }

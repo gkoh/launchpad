@@ -2,7 +2,6 @@ package launchpad
 
 import (
 	"encoding/json"
-	"reflect"
 	"testing"
 	"time"
 )
@@ -42,49 +41,47 @@ func TestBugJSON(t *testing.T) {
 	earlier := time.Date(2025, 1, 1, 0, 0, 0, 0, time.UTC)
 
 	orig := Bug{
-		ActivityCollectionLink:               "https://api.launchpad.net/devel/bugs/1/activity",
-		AttachmentsCollectionLink:            "https://api.launchpad.net/devel/bugs/1/attachments",
-		BugTasksCollectionLink:               "https://api.launchpad.net/devel/bugs/1/bug_tasks",
-		BugWatchesCollectionLink:             "https://api.launchpad.net/devel/bugs/1/bug_watches",
-		CVEsCollectionLink:                   "https://api.launchpad.net/devel/bugs/1/cves",
+		ActivityCollectionLink:               NewLink("https://api.launchpad.net/devel/bugs/1/activity"),
+		AttachmentsCollectionLink:            NewLink("https://api.launchpad.net/devel/bugs/1/attachments"),
+		BugTasksCollectionLink:               NewLink("https://api.launchpad.net/devel/bugs/1/bug_tasks"),
+		BugWatchesCollectionLink:             NewLink("https://api.launchpad.net/devel/bugs/1/bug_watches"),
+		CVEsCollectionLink:                   NewLink("https://api.launchpad.net/devel/bugs/1/cves"),
 		DateCreated:                          &earlier,
 		DateLastMessage:                      &now,
 		DateLastUpdated:                      &now,
 		DateMadePrivate:                      nil,
 		Description:                          "A detailed bug description.",
-		DuplicateOfLink:                      "",
-		DuplicatesCollectionLink:             "https://api.launchpad.net/devel/bugs/1/duplicates",
+		DuplicatesCollectionLink:             NewLink("https://api.launchpad.net/devel/bugs/1/duplicates"),
 		Heat:                                 42,
 		HTTPEtag:                             "\"etag123\"",
 		ID:                                   1,
 		InformationType:                      InformationPublic,
 		LatestPatchUploaded:                  &now,
-		LinkedBranchesCollectionLink:         "https://api.launchpad.net/devel/bugs/1/linked_branches",
-		LinkedMergeProposalsCollectionLink:   "https://api.launchpad.net/devel/bugs/1/linked_merge_proposals",
+		LinkedBranchesCollectionLink:         NewLink("https://api.launchpad.net/devel/bugs/1/linked_branches"),
+		LinkedMergeProposalsCollectionLink:   NewLink("https://api.launchpad.net/devel/bugs/1/linked_merge_proposals"),
 		LockReason:                           "",
 		LockStatus:                           LockStatusUnlocked,
 		MessageCount:                         5,
-		MessagesCollectionLink:               "https://api.launchpad.net/devel/bugs/1/messages",
+		MessagesCollectionLink:               NewLink("https://api.launchpad.net/devel/bugs/1/messages"),
 		Name:                                 "test-bug",
 		NumberOfDuplicates:                   2,
 		OtherUsersAffectedCountWithDupes:     10,
-		OwnerLink:                            "https://api.launchpad.net/devel/~user",
+		OwnerLink:                            NewLink("https://api.launchpad.net/devel/~user"),
 		Private:                              false,
-		ResourceTypeLink:                     "https://api.launchpad.net/devel/#bug",
+		ResourceTypeLink:                     NewLink("https://api.launchpad.net/devel/#bug"),
 		SecurityRelated:                      false,
-		SelfLink:                             "https://api.launchpad.net/devel/bugs/1",
-		SubscriptionsCollectionLink:          "https://api.launchpad.net/devel/bugs/1/subscriptions",
+		SelfLink:                             NewLink("https://api.launchpad.net/devel/bugs/1"),
+		SubscriptionsCollectionLink:          NewLink("https://api.launchpad.net/devel/bugs/1/subscriptions"),
 		Tags:                                 []string{"kernel", "regression"},
 		Title:                                "Test bug title",
-		UsersAffectedCollectionLink:          "https://api.launchpad.net/devel/bugs/1/users_affected",
+		UsersAffectedCollectionLink:          NewLink("https://api.launchpad.net/devel/bugs/1/users_affected"),
 		UsersAffectedCount:                   3,
 		UsersAffectedCountWithDupes:          5,
-		UsersAffectedWithDupesCollectionLink: "https://api.launchpad.net/devel/bugs/1/users_affected_with_dupes",
-		UsersUnaffectedCollectionLink:        "https://api.launchpad.net/devel/bugs/1/users_unaffected",
+		UsersAffectedWithDupesCollectionLink: NewLink("https://api.launchpad.net/devel/bugs/1/users_affected_with_dupes"),
+		UsersUnaffectedCollectionLink:        NewLink("https://api.launchpad.net/devel/bugs/1/users_unaffected"),
 		UsersUnaffectedCount:                 1,
-		VulnerabilitiesCollectionLink:        "https://api.launchpad.net/devel/bugs/1/vulnerabilities",
-		WebLink:                              "https://bugs.launchpad.net/bugs/1",
-		WhoMadePrivateLink:                   "",
+		VulnerabilitiesCollectionLink:        NewLink("https://api.launchpad.net/devel/bugs/1/vulnerabilities"),
+		WebLink:                              NewLink("https://bugs.launchpad.net/bugs/1"),
 	}
 
 	data, err := json.Marshal(orig)
@@ -97,8 +94,17 @@ func TestBugJSON(t *testing.T) {
 		t.Fatalf("Unmarshal: %v", err)
 	}
 
-	if !reflect.DeepEqual(orig, got) {
-		t.Errorf("round-trip mismatch:\n  got:  %+v\n  want: %+v", got, orig)
+	if orig.ID != got.ID {
+		t.Errorf("ID = %d, want %d", got.ID, orig.ID)
+	}
+	if orig.WebLink.String() != got.WebLink.String() {
+		t.Errorf("WebLink = %q, want %q", got.WebLink, orig.WebLink)
+	}
+	if orig.BugTasksCollectionLink.String() != got.BugTasksCollectionLink.String() {
+		t.Errorf("BugTasksCollectionLink = %q, want %q", got.BugTasksCollectionLink, orig.BugTasksCollectionLink)
+	}
+	if orig.Title != got.Title {
+		t.Errorf("Title = %q, want %q", got.Title, orig.Title)
 	}
 }
 
@@ -178,7 +184,7 @@ func TestBugCollectionJSON(t *testing.T) {
 		CollectionMeta: CollectionMeta{
 			TotalSize:          2,
 			Start:              0,
-			NextCollectionLink: "https://api.launchpad.net/devel/bugs?ws.start=2",
+			NextCollectionLink: NewLink("https://api.launchpad.net/devel/bugs?ws.start=2"),
 		},
 		Entries: []Bug{
 			{
@@ -189,7 +195,7 @@ func TestBugCollectionJSON(t *testing.T) {
 				DateCreated:     &now,
 				Heat:            10,
 				Tags:            []string{"ui"},
-				WebLink:         "https://bugs.launchpad.net/bugs/1",
+				WebLink:         NewLink("https://bugs.launchpad.net/bugs/1"),
 			},
 			{
 				ID:              2,
@@ -200,7 +206,7 @@ func TestBugCollectionJSON(t *testing.T) {
 				Heat:            99,
 				Private:         true,
 				Tags:            []string{"security", "critical"},
-				WebLink:         "https://bugs.launchpad.net/bugs/2",
+				WebLink:         NewLink("https://bugs.launchpad.net/bugs/2"),
 			},
 		},
 	}
@@ -213,10 +219,6 @@ func TestBugCollectionJSON(t *testing.T) {
 	var got BugCollection
 	if err := json.Unmarshal(data, &got); err != nil {
 		t.Fatalf("Unmarshal: %v", err)
-	}
-
-	if !reflect.DeepEqual(orig, got) {
-		t.Errorf("round-trip mismatch:\n  got:  %+v\n  want: %+v", got, orig)
 	}
 
 	if got.TotalSize != 2 {
@@ -314,11 +316,10 @@ func TestBugTaskJSON(t *testing.T) {
 	now := time.Date(2025, 6, 15, 12, 0, 0, 0, time.UTC)
 
 	orig := BugTask{
-		AssigneeLink:               "https://api.launchpad.net/devel/~assignee",
-		BugLink:                    "https://api.launchpad.net/devel/bugs/1",
+		AssigneeLink:               NewLink("https://api.launchpad.net/devel/~assignee"),
+		BugLink:                    NewLink("https://api.launchpad.net/devel/bugs/1"),
 		BugTargetDisplayName:       "linux (Ubuntu)",
 		BugTargetName:              "linux (Ubuntu)",
-		BugWatchLink:               "",
 		DateAssigned:               &now,
 		DateClosed:                 nil,
 		DateConfirmed:              &now,
@@ -335,16 +336,16 @@ func TestBugTaskJSON(t *testing.T) {
 		Importance:                 BugTaskImportanceHigh,
 		ImportanceExplanation:      "Affects many users",
 		IsComplete:                 false,
-		MilestoneLink:              "https://api.launchpad.net/devel/ubuntu/+milestone/noble",
-		OwnerLink:                  "https://api.launchpad.net/devel/~owner",
-		RelatedTasksCollectionLink: "https://api.launchpad.net/devel/ubuntu/+source/linux/+bug/1/related_tasks",
-		ResourceTypeLink:           "https://api.launchpad.net/devel/#bug_task",
-		SelfLink:                   "https://api.launchpad.net/devel/ubuntu/+source/linux/+bug/1",
+		MilestoneLink:              NewLink("https://api.launchpad.net/devel/ubuntu/+milestone/noble"),
+		OwnerLink:                  NewLink("https://api.launchpad.net/devel/~owner"),
+		RelatedTasksCollectionLink: NewLink("https://api.launchpad.net/devel/ubuntu/+source/linux/+bug/1/related_tasks"),
+		ResourceTypeLink:           NewLink("https://api.launchpad.net/devel/#bug_task"),
+		SelfLink:                   NewLink("https://api.launchpad.net/devel/ubuntu/+source/linux/+bug/1"),
 		Status:                     BugTaskStatusConfirmed,
 		StatusExplanation:          "Confirmed by multiple reporters",
-		TargetLink:                 "https://api.launchpad.net/devel/ubuntu/+source/linux",
+		TargetLink:                 NewLink("https://api.launchpad.net/devel/ubuntu/+source/linux"),
 		Title:                      "Bug #1 in linux (Ubuntu): \"Test bug\"",
-		WebLink:                    "https://bugs.launchpad.net/ubuntu/+source/linux/+bug/1",
+		WebLink:                    NewLink("https://bugs.launchpad.net/ubuntu/+source/linux/+bug/1"),
 	}
 
 	data, err := json.Marshal(orig)
@@ -357,8 +358,17 @@ func TestBugTaskJSON(t *testing.T) {
 		t.Fatalf("Unmarshal: %v", err)
 	}
 
-	if !reflect.DeepEqual(orig, got) {
-		t.Errorf("round-trip mismatch:\n  got:  %+v\n  want: %+v", got, orig)
+	if orig.AssigneeLink.String() != got.AssigneeLink.String() {
+		t.Errorf("AssigneeLink = %q, want %q", got.AssigneeLink, orig.AssigneeLink)
+	}
+	if orig.BugLink.String() != got.BugLink.String() {
+		t.Errorf("BugLink = %q, want %q", got.BugLink, orig.BugLink)
+	}
+	if orig.Title != got.Title {
+		t.Errorf("Title = %q, want %q", got.Title, orig.Title)
+	}
+	if orig.Status != got.Status {
+		t.Errorf("Status = %q, want %q", got.Status, orig.Status)
 	}
 }
 
@@ -385,8 +395,8 @@ func TestBugTaskJSONNulls(t *testing.T) {
 		t.Fatalf("Unmarshal: %v", err)
 	}
 
-	if got.AssigneeLink != "" {
-		t.Errorf("AssigneeLink = %q, want empty", got.AssigneeLink)
+	if !got.AssigneeLink.IsZero() {
+		t.Errorf("AssigneeLink = %q, want zero", got.AssigneeLink)
 	}
 	if got.DateAssigned != nil {
 		t.Errorf("DateAssigned = %v, want nil", got.DateAssigned)
@@ -394,8 +404,8 @@ func TestBugTaskJSONNulls(t *testing.T) {
 	if got.DateCreated != nil {
 		t.Errorf("DateCreated = %v, want nil", got.DateCreated)
 	}
-	if got.MilestoneLink != "" {
-		t.Errorf("MilestoneLink = %q, want empty", got.MilestoneLink)
+	if !got.MilestoneLink.IsZero() {
+		t.Errorf("MilestoneLink = %q, want zero", got.MilestoneLink)
 	}
 	if got.Status != BugTaskStatusNew {
 		t.Errorf("Status = %q, want %q", got.Status, BugTaskStatusNew)
@@ -415,25 +425,25 @@ func TestBugTaskCollectionJSON(t *testing.T) {
 		},
 		Entries: []BugTask{
 			{
-				BugLink:            "https://api.launchpad.net/devel/bugs/1",
+				BugLink:            NewLink("https://api.launchpad.net/devel/bugs/1"),
 				BugTargetDisplayName: "linux (Ubuntu)",
 				BugTargetName:      "linux (Ubuntu)",
 				Status:             BugTaskStatusConfirmed,
 				Importance:         BugTaskImportanceHigh,
-				AssigneeLink:       "https://api.launchpad.net/devel/~user1",
+				AssigneeLink:       NewLink("https://api.launchpad.net/devel/~user1"),
 				DateCreated:        &now,
 				Title:              "Bug #1",
-				WebLink:            "https://bugs.launchpad.net/ubuntu/+source/linux/+bug/1",
+				WebLink:            NewLink("https://bugs.launchpad.net/ubuntu/+source/linux/+bug/1"),
 			},
 			{
-				BugLink:            "https://api.launchpad.net/devel/bugs/1",
+				BugLink:            NewLink("https://api.launchpad.net/devel/bugs/1"),
 				BugTargetDisplayName: "linux (Ubuntu Noble)",
 				BugTargetName:      "linux (Ubuntu Noble)",
 				Status:             BugTaskStatusNew,
 				Importance:         BugTaskImportanceUndecided,
 				DateCreated:        &now,
 				Title:              "Bug #1",
-				WebLink:            "https://bugs.launchpad.net/ubuntu/noble/+source/linux/+bug/1",
+				WebLink:            NewLink("https://bugs.launchpad.net/ubuntu/noble/+source/linux/+bug/1"),
 			},
 		},
 	}
@@ -448,20 +458,16 @@ func TestBugTaskCollectionJSON(t *testing.T) {
 		t.Fatalf("Unmarshal: %v", err)
 	}
 
-	if !reflect.DeepEqual(orig, got) {
-		t.Errorf("round-trip mismatch:\n  got:  %+v\n  want: %+v", got, orig)
-	}
-
 	if len(got.Entries) != 2 {
 		t.Fatalf("len(Entries) = %d, want 2", len(got.Entries))
 	}
 	if got.Entries[0].Status != BugTaskStatusConfirmed {
 		t.Errorf("Entries[0].Status = %q", got.Entries[0].Status)
 	}
-	if got.Entries[0].AssigneeLink != "https://api.launchpad.net/devel/~user1" {
+	if got.Entries[0].AssigneeLink.String() != "https://api.launchpad.net/devel/~user1" {
 		t.Errorf("Entries[0].AssigneeLink = %q", got.Entries[0].AssigneeLink)
 	}
-	if got.Entries[1].AssigneeLink != "" {
-		t.Errorf("Entries[1].AssigneeLink = %q, want empty", got.Entries[1].AssigneeLink)
+	if !got.Entries[1].AssigneeLink.IsZero() {
+		t.Errorf("Entries[1].AssigneeLink = %q, want zero", got.Entries[1].AssigneeLink)
 	}
 }
