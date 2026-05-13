@@ -19,7 +19,7 @@
 //	  bug -id <int>              Query and display a bug
 //
 //	set <resource> [flags]       Update a resource
-//	  bug -id <int> -title <s>   Update bug fields
+//	  bug -id <int> -project <name> [-title <s>] [-assignee <user> -task <target>]
 package main
 
 import (
@@ -106,8 +106,11 @@ Commands:
   get <resource> [flags]         Fetch and display a resource
     bug -id <int> [-verbose]     Query and display a bug by ID
 
-  set <resource> [flags]         Update a resource
-    bug -id <int> [-title <s>]   Update bug fields
+  set <resource> [flags]                          Update a resource
+    bug -id <int> -project <name> [field flags]   Update bug fields
+      -title <string>                             New bug title
+      -assignee <user>                            Set assignee (use "" to unassign)
+      -task <target>                              Bug task target (required with -assignee)
 
   search bug [flags] [<text>]      Search for bugs
     -project <name>              Project or distribution (required)
@@ -272,12 +275,14 @@ func cmdSet(credsPath, consumerKey string, args []string) {
 	}
 }
 
-// cmdSetBug handles "set bug -id <int> [-title <string>]".
+// cmdSetBug handles "set bug -id <int> -project <name> [-title <string>] [-assignee <user> -task <target>]".
 func cmdSetBug(credsPath, consumerKey string, args []string) {
 	fs := flag.NewFlagSet("set bug", flag.ExitOnError)
 	bugID := fs.Int("id", 0, "Bug ID (required)")
+	project := fs.String("project", "", "Project or distribution name (required)")
 	title := fs.String("title", "", "New bug title")
-	// Future fields: add more flags here (e.g. -description, -importance).
+	assignee := fs.String("assignee", "", "Assignee username (use \"\" to unassign)")
+	task := fs.String("task", "", "Bug task target name (required with -assignee)")
 	fs.Parse(args)
 
 	if *bugID <= 0 {
@@ -286,9 +291,30 @@ func cmdSetBug(credsPath, consumerKey string, args []string) {
 		os.Exit(1)
 	}
 
+	if *project == "" {
+		fmt.Fprintf(os.Stderr, "Error: -project is required\n")
+		fs.Usage()
+		os.Exit(1)
+	}
+
+	// Detect which flags were explicitly set.
+	assigneeSet := false
+	fs.Visit(func(f *flag.Flag) {
+		if f.Name == "assignee" {
+			assigneeSet = true
+		}
+	})
+
 	// Require at least one field to update.
-	if *title == "" {
-		fmt.Fprintf(os.Stderr, "Error: at least one field flag is required (e.g. -title)\n")
+	if *title == "" && !assigneeSet {
+		fmt.Fprintf(os.Stderr, "Error: at least one field flag is required (e.g. -title, -assignee)\n")
+		fs.Usage()
+		os.Exit(1)
+	}
+
+	// -assignee requires -task.
+	if assigneeSet && *task == "" {
+		fmt.Fprintf(os.Stderr, "Error: -task is required when using -assignee\n")
 		fs.Usage()
 		os.Exit(1)
 	}
@@ -300,8 +326,55 @@ func cmdSetBug(credsPath, consumerKey string, args []string) {
 	}
 	client := launchpad.NewClient(creds, nil)
 
+	// Gate: fetch bug and tasks, verify the bug has a task matching -project.
+	resp, err := client.Get(fmt.Sprintf("/bugs/%d", *bugID))
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "Error: %v\n", err)
+		os.Exit(1)
+	}
+	defer resp.Body.Close()
+
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "Error reading bug: %v\n", err)
+		os.Exit(1)
+	}
+	if resp.StatusCode != http.StatusOK {
+		fmt.Fprintf(os.Stderr, "Error: API returned %d: %s\n", resp.StatusCode, strings.TrimSpace(string(body)))
+		os.Exit(1)
+	}
+
+	var bug launchpad.Bug
+	if err := json.Unmarshal(body, &bug); err != nil {
+		fmt.Fprintf(os.Stderr, "Error parsing bug: %v\n", err)
+		os.Exit(1)
+	}
+
+	if bug.BugTasksCollectionLink.IsZero() {
+		fmt.Fprintf(os.Stderr, "Error: bug #%d has no tasks\n", *bugID)
+		os.Exit(1)
+	}
+
+	tasks, err := fetchBugTasks(client, bug.BugTasksCollectionLink.String())
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "Error fetching tasks: %v\n", err)
+		os.Exit(1)
+	}
+
+	if _, err := findTaskByTarget(tasks, *project); err != nil {
+		fmt.Fprintf(os.Stderr, "Error: %v\n", err)
+		os.Exit(1)
+	}
+
 	if *title != "" {
 		if err := updateBugTitle(client, *bugID, *title); err != nil {
+			fmt.Fprintf(os.Stderr, "Error: %v\n", err)
+			os.Exit(1)
+		}
+	}
+
+	if assigneeSet {
+		if err := updateBugTaskAssignee(client, *bugID, tasks, *task, *assignee); err != nil {
 			fmt.Fprintf(os.Stderr, "Error: %v\n", err)
 			os.Exit(1)
 		}
@@ -667,6 +740,75 @@ func updateBugTitle(client *launchpad.Client, bugID int, title string) error {
 	}
 
 	return nil
+}
+
+// updateBugTaskAssignee sets the assignee on a bug task matching the given
+// target name. An empty username unassigns the task. The tasks slice must
+// have been fetched beforehand.
+func updateBugTaskAssignee(client *launchpad.Client, bugID int, tasks []launchpad.BugTask, targetName, username string) error {
+	matched, err := findTaskByTarget(tasks, targetName)
+	if err != nil {
+		return err
+	}
+
+	// Build the PATCH payload.
+	var payload []byte
+	if username == "" {
+		// Unassign: send null.
+		payload = []byte(`{"assignee_link":null}`)
+	} else {
+		assigneeLink := fmt.Sprintf("https://api.launchpad.net/devel/~%s", username)
+		payload, err = json.Marshal(map[string]string{"assignee_link": assigneeLink})
+		if err != nil {
+			return fmt.Errorf("marshalling payload: %w", err)
+		}
+	}
+
+	// PATCH the task.
+	taskURL := matched.SelfLink.String()
+	req, err := http.NewRequest(http.MethodPatch, taskURL, bytes.NewReader(payload))
+	if err != nil {
+		return err
+	}
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("Accept", "application/json")
+
+	patchResp, err := client.Do(req)
+	if err != nil {
+		return fmt.Errorf("updating assignee: %w", err)
+	}
+	defer patchResp.Body.Close()
+
+	if patchResp.StatusCode == http.StatusUnauthorized {
+		return fmt.Errorf("not authorized to edit bug #%d (credentials may lack write permission; re-run 'lp-cli auth -permission WRITE_PRIVATE')", bugID)
+	}
+	if patchResp.StatusCode != http.StatusOK && patchResp.StatusCode != statusContentReturned {
+		patchBody, _ := io.ReadAll(patchResp.Body)
+		return fmt.Errorf("API returned %d: %s", patchResp.StatusCode, strings.TrimSpace(string(patchBody)))
+	}
+
+	if username == "" {
+		fmt.Printf("Unassigned task %q on bug #%d\n", targetName, bugID)
+	} else {
+		fmt.Printf("Assigned %q to task %q on bug #%d\n", username, targetName, bugID)
+	}
+	return nil
+}
+
+// findTaskByTarget returns the bug task whose BugTargetName matches the given
+// name exactly. If no match is found, it returns an error listing available
+// target names.
+func findTaskByTarget(tasks []launchpad.BugTask, targetName string) (*launchpad.BugTask, error) {
+	for i := range tasks {
+		if tasks[i].BugTargetName == targetName {
+			return &tasks[i], nil
+		}
+	}
+	var names []string
+	for _, t := range tasks {
+		names = append(names, t.BugTargetName)
+	}
+	return nil, fmt.Errorf("no task found for target %q; available targets: %s", targetName, strings.Join(names, ", "))
 }
 
 // fetchAllMessages fetches all messages for a bug, following pagination links.
