@@ -148,3 +148,80 @@ func TestClientPatch(t *testing.T) {
 		t.Errorf("response body = %q", string(body))
 	}
 }
+
+func TestClientGetBug(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/bugs/12345" {
+			t.Errorf("path = %q, want /bugs/12345", r.URL.Path)
+		}
+		w.Write([]byte(`{
+			"id": 12345,
+			"title": "Test bug title",
+			"description": "A test bug",
+			"heat": 42,
+			"tags": ["kernel", "sru"],
+			"information_type": "Public",
+			"message_count": 3,
+			"web_link": "https://bugs.launchpad.net/ubuntu/+bug/12345",
+			"self_link": "https://api.launchpad.net/devel/bugs/12345"
+		}`))
+	}))
+	defer srv.Close()
+
+	creds := &Credentials{
+		ConsumerKey: "test",
+		Token:       &AccessToken{Token: "t", Secret: "s"},
+	}
+	client := NewClient(creds, nil)
+	client.APIBaseURL = srv.URL
+
+	bug, err := client.GetBug(12345)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if bug.ID != 12345 {
+		t.Errorf("ID = %d, want 12345", bug.ID)
+	}
+	if bug.Title != "Test bug title" {
+		t.Errorf("Title = %q, want %q", bug.Title, "Test bug title")
+	}
+	if bug.Description != "A test bug" {
+		t.Errorf("Description = %q, want %q", bug.Description, "A test bug")
+	}
+	if bug.Heat != 42 {
+		t.Errorf("Heat = %d, want 42", bug.Heat)
+	}
+	if len(bug.Tags) != 2 || bug.Tags[0] != "kernel" || bug.Tags[1] != "sru" {
+		t.Errorf("Tags = %v, want [kernel sru]", bug.Tags)
+	}
+	if bug.InformationType != InformationPublic {
+		t.Errorf("InformationType = %q, want %q", bug.InformationType, InformationPublic)
+	}
+	if bug.MessageCount != 3 {
+		t.Errorf("MessageCount = %d, want 3", bug.MessageCount)
+	}
+}
+
+func TestClientGetBugNotFound(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusNotFound)
+		w.Write([]byte(`{"error": "bug not found"}`))
+	}))
+	defer srv.Close()
+
+	creds := &Credentials{
+		ConsumerKey: "test",
+		Token:       &AccessToken{Token: "t", Secret: "s"},
+	}
+	client := NewClient(creds, nil)
+	client.APIBaseURL = srv.URL
+
+	_, err := client.GetBug(99999)
+	if err == nil {
+		t.Fatal("expected error, got nil")
+	}
+	if !strings.Contains(err.Error(), "404") {
+		t.Errorf("error = %q, want it to contain 404", err.Error())
+	}
+}
