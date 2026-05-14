@@ -1,6 +1,7 @@
 package launchpad
 
 import (
+	"encoding/json"
 	"fmt"
 	"io"
 	"net/http"
@@ -69,10 +70,92 @@ func (c *Client) Get(path string) (*http.Response, error) {
 	return c.Do(req)
 }
 
-// Me is a convenience method that fetches the authenticated user's details
-// from /people/+me on the Launchpad API.
-func (c *Client) Me() (*http.Response, error) {
-	return c.Get("/people/+me")
+// Me fetches the authenticated user's details from /people/+me and
+// returns the parsed Person.
+func (c *Client) Me() (*Person, error) {
+	resp, err := c.Get("/people/+me")
+	if err != nil {
+		return nil, err
+	}
+	defer resp.Body.Close()
+
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return nil, fmt.Errorf("launchpad: reading me response: %w", err)
+	}
+
+	if resp.StatusCode != http.StatusOK {
+		return nil, fmt.Errorf("launchpad: me returned %d: %s", resp.StatusCode, strings.TrimSpace(string(body)))
+	}
+
+	var person Person
+	if err := json.Unmarshal(body, &person); err != nil {
+		return nil, fmt.Errorf("launchpad: parsing me response: %w", err)
+	}
+
+	return &person, nil
+}
+
+// GetPerson fetches a Person by their full API link URL.
+func (c *Client) GetPerson(link Link) (*Person, error) {
+	if link.IsZero() {
+		return nil, fmt.Errorf("launchpad: empty person link")
+	}
+
+	req, err := http.NewRequest(http.MethodGet, link.String(), nil)
+	if err != nil {
+		return nil, err
+	}
+	req.Header.Set("Accept", "application/json")
+
+	resp, err := c.Do(req)
+	if err != nil {
+		return nil, err
+	}
+	defer resp.Body.Close()
+
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return nil, fmt.Errorf("launchpad: reading person response: %w", err)
+	}
+
+	if resp.StatusCode != http.StatusOK {
+		return nil, fmt.Errorf("launchpad: person returned %d: %s", resp.StatusCode, strings.TrimSpace(string(body)))
+	}
+
+	var person Person
+	if err := json.Unmarshal(body, &person); err != nil {
+		return nil, fmt.Errorf("launchpad: parsing person response: %w", err)
+	}
+
+	return &person, nil
+}
+
+// ResolvePersonLinks fetches the display name for each unique non-zero Link.
+// Returns a map from link URL string to "DisplayName (name)".
+// Links that fail to resolve are mapped to their raw URL string.
+func (c *Client) ResolvePersonLinks(links []Link) map[string]string {
+	result := make(map[string]string)
+
+	for _, link := range links {
+		if link.IsZero() {
+			continue
+		}
+		url := link.String()
+		if _, ok := result[url]; ok {
+			continue
+		}
+
+		person, err := c.GetPerson(link)
+		if err != nil {
+			result[url] = url
+			continue
+		}
+
+		result[url] = fmt.Sprintf("%s (%s)", person.DisplayName, person.Name)
+	}
+
+	return result
 }
 
 // Patch performs a PATCH request against the Launchpad API with a JSON body.

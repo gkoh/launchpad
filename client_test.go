@@ -52,7 +52,7 @@ func TestClientMe(t *testing.T) {
 		if r.URL.Path != "/people/+me" {
 			t.Errorf("path = %q, want /people/+me", r.URL.Path)
 		}
-		w.Write([]byte(`{"display_name":"Test User"}`))
+		w.Write([]byte(`{"display_name":"Test User","name":"testuser","web_link":"https://launchpad.net/~testuser"}`))
 	}))
 	defer srv.Close()
 
@@ -63,14 +63,16 @@ func TestClientMe(t *testing.T) {
 	client := NewClient(creds, nil)
 	client.APIBaseURL = srv.URL
 
-	resp, err := client.Me()
+	person, err := client.Me()
 	if err != nil {
 		t.Fatal(err)
 	}
-	resp.Body.Close()
 
-	if resp.StatusCode != http.StatusOK {
-		t.Errorf("status = %d", resp.StatusCode)
+	if person.DisplayName != "Test User" {
+		t.Errorf("DisplayName = %q, want %q", person.DisplayName, "Test User")
+	}
+	if person.Name != "testuser" {
+		t.Errorf("Name = %q, want %q", person.Name, "testuser")
 	}
 }
 
