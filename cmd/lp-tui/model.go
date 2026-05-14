@@ -185,9 +185,11 @@ func fetchBugTasksCmd(client *launchpad.Client, tasksURL string) tea.Cmd {
 		}
 
 		// Resolve assignees.
-		assignees := resolvePersonLinks(client, uniqueLinks(collection.Entries, func(t launchpad.BugTask) string {
-			return t.AssigneeLink.String()
-		}))
+		var assigneeLinks []launchpad.Link
+		for _, t := range collection.Entries {
+			assigneeLinks = append(assigneeLinks, t.AssigneeLink)
+		}
+		assignees := client.ResolvePersonLinks(assigneeLinks)
 
 		return bugTasksMsg{tasks: collection.Entries, assignees: assignees}
 	}
@@ -230,64 +232,17 @@ func fetchCommentsCmd(client *launchpad.Client, messagesURL string) tea.Cmd {
 		}
 
 		// Resolve owners.
-		owners := resolvePersonLinks(client, uniqueLinks(allMessages, func(m launchpad.Message) string {
-			return m.OwnerLink.String()
-		}))
+		var ownerLinks []launchpad.Link
+		for _, m := range allMessages {
+			ownerLinks = append(ownerLinks, m.OwnerLink)
+		}
+		owners := client.ResolvePersonLinks(ownerLinks)
 
 		return commentsMsg{messages: allMessages, owners: owners}
 	}
 }
 
 // --- Helpers ---
-
-// uniqueLinks extracts unique non-empty link strings from a slice.
-func uniqueLinks[T any](items []T, getLink func(T) string) []string {
-	seen := make(map[string]bool)
-	var links []string
-	for _, item := range items {
-		link := getLink(item)
-		if link != "" && !seen[link] {
-			seen[link] = true
-			links = append(links, link)
-		}
-	}
-	return links
-}
-
-// resolvePersonLinks fetches Person display names for a list of API links.
-func resolvePersonLinks(client *launchpad.Client, links []string) map[string]string {
-	result := make(map[string]string)
-	for _, link := range links {
-		req, err := http.NewRequest(http.MethodGet, link, nil)
-		if err != nil {
-			result[link] = link
-			continue
-		}
-		req.Header.Set("Accept", "application/json")
-
-		resp, err := client.Do(req)
-		if err != nil {
-			result[link] = link
-			continue
-		}
-
-		body, err := io.ReadAll(resp.Body)
-		resp.Body.Close()
-		if err != nil || resp.StatusCode != http.StatusOK {
-			result[link] = link
-			continue
-		}
-
-		var person launchpad.Person
-		if err := json.Unmarshal(body, &person); err != nil {
-			result[link] = link
-			continue
-		}
-
-		result[link] = fmt.Sprintf("%s (%s)", person.DisplayName, person.Name)
-	}
-	return result
-}
 
 // --- Update ---
 
