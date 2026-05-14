@@ -19,10 +19,10 @@ import (
 
 const (
 	// Launchpad OAuth endpoints.
-	defaultBaseURL   = "https://launchpad.net"
-	requestTokenPath = "/+request-token"
+	defaultBaseURL     = "https://launchpad.net"
+	requestTokenPath   = "/+request-token"
 	authorizeTokenPath = "/+authorize-token"
-	accessTokenPath  = "/+access-token"
+	accessTokenPath    = "/+access-token"
 
 	// DefaultAPIBaseURL is the base URL for the Launchpad devel API.
 	DefaultAPIBaseURL = "https://api.launchpad.net/devel"

@@ -25,17 +25,17 @@ const (
 
 // model is the top-level Bubble Tea model.
 type model struct {
-	client  *launchpad.Client
-	view    viewState
+	client   *launchpad.Client
+	view     viewState
 	prevView viewState // for back navigation from detail
-	search  searchModel
-	list    listModel
-	detail  detailModel
-	spinner spinner.Model
-	loading bool
-	status  string // status/error message
-	width   int
-	height  int
+	search   searchModel
+	list     listModel
+	detail   detailModel
+	spinner  spinner.Model
+	loading  bool
+	status   string // status/error message
+	width    int
+	height   int
 }
 
 func newModel(client *launchpad.Client) model {

@@ -658,16 +658,16 @@ func showBug(client *launchpad.Client, bugID int, verbose bool) error {
 
 			fmt.Printf("\n## Comments (%d)\n", len(messages))
 			for i, msg := range messages {
-			owner := msg.OwnerLink.String()
-			if name, ok := owners[msg.OwnerLink.String()]; ok {
+				owner := msg.OwnerLink.String()
+				if name, ok := owners[msg.OwnerLink.String()]; ok {
 					owner = name
 				}
 				date := "unknown"
 				if msg.DateCreated != nil {
 					date = msg.DateCreated.Format("2006-01-02 15:04:05")
 				}
-			fmt.Printf("\n### #%d by %s on %s\n\n", i+1, owner, date)
-			content := msg.Content
+				fmt.Printf("\n### #%d by %s on %s\n\n", i+1, owner, date)
+				content := msg.Content
 				if len(content) > maxCommentLength {
 					content = content[:maxCommentLength] + "..."
 				}

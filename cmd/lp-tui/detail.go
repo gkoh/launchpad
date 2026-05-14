@@ -11,15 +11,15 @@ import (
 )
 
 type detailModel struct {
-	viewport viewport.Model
-	bug      *launchpad.Bug
-	tasks    []launchpad.BugTask
+	viewport  viewport.Model
+	bug       *launchpad.Bug
+	tasks     []launchpad.BugTask
 	assignees map[string]string
-	messages []launchpad.Message
-	owners   map[string]string
-	ready    bool
-	width    int
-	height   int
+	messages  []launchpad.Message
+	owners    map[string]string
+	ready     bool
+	width     int
+	height    int
 }
 
 func newDetailModel(width, height int) detailModel {
