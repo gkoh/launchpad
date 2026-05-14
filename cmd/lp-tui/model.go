@@ -129,30 +129,11 @@ func searchBugsCmd(client *launchpad.Client, project, text string) tea.Cmd {
 
 func fetchBugCmd(client *launchpad.Client, bugID int) tea.Cmd {
 	return func() tea.Msg {
-		resp, err := client.Get(fmt.Sprintf("/bugs/%d", bugID))
+		bug, err := client.GetBug(bugID)
 		if err != nil {
 			return bugDetailMsg{err: err}
 		}
-		defer resp.Body.Close()
-
-		body, err := io.ReadAll(resp.Body)
-		if err != nil {
-			return bugDetailMsg{err: err}
-		}
-
-		if resp.StatusCode == http.StatusNotFound {
-			return bugDetailMsg{err: fmt.Errorf("bug #%d not found", bugID)}
-		}
-		if resp.StatusCode != http.StatusOK {
-			return bugDetailMsg{err: fmt.Errorf("API returned %d: %s", resp.StatusCode, strings.TrimSpace(string(body)))}
-		}
-
-		var bug launchpad.Bug
-		if err := json.Unmarshal(body, &bug); err != nil {
-			return bugDetailMsg{err: err}
-		}
-
-		return bugDetailMsg{bug: &bug}
+		return bugDetailMsg{bug: bug}
 	}
 }
 

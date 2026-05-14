@@ -1,10 +1,7 @@
 package main
 
 import (
-	"encoding/json"
 	"fmt"
-	"io"
-	"net/http"
 	"os"
 	"strings"
 
@@ -48,24 +45,9 @@ func runGetBug(cmd *cobra.Command, args []string) error {
 // showBug fetches and displays a bug by ID, including its tasks and assignees.
 // When verbose is true, all comments are fetched and displayed.
 func showBug(client *launchpad.Client, bugID int, verbose bool) error {
-	resp, err := client.Get(fmt.Sprintf("/bugs/%d", bugID))
+	bug, err := client.GetBug(bugID)
 	if err != nil {
 		return err
-	}
-	defer resp.Body.Close()
-
-	body, err := io.ReadAll(resp.Body)
-	if err != nil {
-		return fmt.Errorf("reading response: %w", err)
-	}
-
-	if resp.StatusCode != http.StatusOK {
-		return fmt.Errorf("API returned %d: %s", resp.StatusCode, strings.TrimSpace(string(body)))
-	}
-
-	var bug launchpad.Bug
-	if err := json.Unmarshal(body, &bug); err != nil {
-		return fmt.Errorf("parsing bug: %w", err)
 	}
 
 	// Display bug summary.

@@ -83,23 +83,9 @@ func runSetBug(cmd *cobra.Command, args []string) error {
 	}
 
 	// Gate: fetch bug and tasks, verify the bug has a task matching --project.
-	resp, err := client.Get(fmt.Sprintf("/bugs/%d", setBugID))
+	bug, err := client.GetBug(setBugID)
 	if err != nil {
 		return err
-	}
-	defer resp.Body.Close()
-
-	body, err := io.ReadAll(resp.Body)
-	if err != nil {
-		return fmt.Errorf("reading bug: %w", err)
-	}
-	if resp.StatusCode != http.StatusOK {
-		return fmt.Errorf("API returned %d: %s", resp.StatusCode, strings.TrimSpace(string(body)))
-	}
-
-	var bug launchpad.Bug
-	if err := json.Unmarshal(body, &bug); err != nil {
-		return fmt.Errorf("parsing bug: %w", err)
 	}
 
 	if bug.BugTasksCollectionLink.IsZero() {

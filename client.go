@@ -96,6 +96,31 @@ func (c *Client) Me() (*Person, error) {
 	return &person, nil
 }
 
+// GetBug fetches a bug by ID and returns the parsed Bug.
+func (c *Client) GetBug(id int) (*Bug, error) {
+	resp, err := c.Get(fmt.Sprintf("/bugs/%d", id))
+	if err != nil {
+		return nil, err
+	}
+	defer resp.Body.Close()
+
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return nil, fmt.Errorf("launchpad: reading bug response: %w", err)
+	}
+
+	if resp.StatusCode != http.StatusOK {
+		return nil, fmt.Errorf("launchpad: bug returned %d: %s", resp.StatusCode, strings.TrimSpace(string(body)))
+	}
+
+	var bug Bug
+	if err := json.Unmarshal(body, &bug); err != nil {
+		return nil, fmt.Errorf("launchpad: parsing bug response: %w", err)
+	}
+
+	return &bug, nil
+}
+
 // GetPerson fetches a Person by their full API link URL.
 func (c *Client) GetPerson(link Link) (*Person, error) {
 	if link.IsZero() {
