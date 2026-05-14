@@ -77,12 +77,12 @@ func showBug(client *launchpad.Client, bugID int, verbose bool) error {
 
 	// Fetch bug tasks.
 	if !bug.BugTasksCollectionLink.IsZero() {
-		tasks, err := fetchBugTasks(client, bug.BugTasksCollectionLink.String())
+		tasks, err := bug.GetTasks()
 		if err != nil {
 			fmt.Fprintf(os.Stderr, "\nWarning: could not fetch bug tasks: %v\n", err)
 		} else if len(tasks) > 0 {
 			// Resolve assignees.
-			assignees := resolveAssignees(client, tasks)
+			assignees := launchpad.ResolveTaskAssignees(client, tasks)
 
 			fmt.Printf("\n## Tasks\n")
 			for _, task := range tasks {
@@ -100,12 +100,12 @@ func showBug(client *launchpad.Client, bugID int, verbose bool) error {
 
 	// Fetch and display comments when verbose.
 	if verbose && !bug.MessagesCollectionLink.IsZero() {
-		messages, err := fetchAllMessages(client, bug.MessagesCollectionLink.String())
+		messages, err := bug.GetMessages()
 		if err != nil {
 			fmt.Fprintf(os.Stderr, "\nWarning: could not fetch comments: %v\n", err)
 		} else if len(messages) > 0 {
 			// Resolve owner display names.
-			owners := resolveOwners(client, messages)
+			owners := launchpad.ResolveMessageOwners(client, messages)
 
 			fmt.Printf("\n## Comments (%d)\n", len(messages))
 			for i, msg := range messages {

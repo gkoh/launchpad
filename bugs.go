@@ -1,6 +1,14 @@
 package launchpad
 
-import "time"
+import (
+	"bytes"
+	"encoding/json"
+	"fmt"
+	"io"
+	"net/http"
+	"strings"
+	"time"
+)
 
 // LockStatus describes the lock state of a bug.
 type LockStatus string
@@ -12,6 +20,8 @@ const (
 
 // Bug represents a bug entry from the Launchpad API.
 type Bug struct {
+	client *Client
+
 	ActivityCollectionLink               Link            `json:"activity_collection_link"`
 	AttachmentsCollectionLink            Link            `json:"attachments_collection_link"`
 	BugTasksCollectionLink               Link            `json:"bug_tasks_collection_link"`
@@ -99,6 +109,8 @@ const (
 // BugTask represents a bug task entry from the Launchpad API.
 // A bug task tracks a bug needing fixing in a particular product or package.
 type BugTask struct {
+	client *Client
+
 	AssigneeLink               Link              `json:"assignee_link"`
 	BugLink                    Link              `json:"bug_link"`
 	BugTargetDisplayName       string            `json:"bug_target_display_name"`
@@ -136,4 +148,182 @@ type BugTask struct {
 type BugTaskCollection struct {
 	CollectionMeta
 	Entries []BugTask `json:"entries"`
+}
+
+// checkPatchResponse validates a PATCH response from the Launchpad API.
+// It returns an error for unauthorized or unexpected status codes.
+func checkPatchResponse(resp *http.Response, action string) error {
+	if resp.StatusCode == http.StatusUnauthorized {
+		return fmt.Errorf("not authorized to %s (credentials may lack write permission)", action)
+	}
+	if resp.StatusCode != http.StatusOK && resp.StatusCode != StatusContentReturned {
+		body, _ := io.ReadAll(resp.Body)
+		return fmt.Errorf("%s: API returned %d: %s", action, resp.StatusCode, strings.TrimSpace(string(body)))
+	}
+	return nil
+}
+
+// SetTitle updates the bug's title via a PATCH request to the Launchpad API.
+func (b *Bug) SetTitle(title string) error {
+	payload, err := json.Marshal(map[string]string{"title": title})
+	if err != nil {
+		return fmt.Errorf("marshalling payload: %w", err)
+	}
+
+	resp, err := b.client.Patch(fmt.Sprintf("/bugs/%d", b.ID), bytes.NewReader(payload))
+	if err != nil {
+		return fmt.Errorf("updating bug title: %w", err)
+	}
+	defer resp.Body.Close()
+
+	return checkPatchResponse(resp, fmt.Sprintf("update title on bug #%d", b.ID))
+}
+
+// GetTasks fetches the bug task collection for this bug.
+// Each returned BugTask has its client reference set so that its
+// own Set methods can be called.
+func (b *Bug) GetTasks() ([]BugTask, error) {
+	if b.BugTasksCollectionLink.IsZero() {
+		return nil, fmt.Errorf("bug #%d has no tasks link", b.ID)
+	}
+
+	resp, err := b.client.GetAbsolute(b.BugTasksCollectionLink.String())
+	if err != nil {
+		return nil, err
+	}
+	defer resp.Body.Close()
+
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return nil, err
+	}
+
+	if resp.StatusCode != http.StatusOK {
+		return nil, fmt.Errorf("bug tasks returned %d: %s", resp.StatusCode, strings.TrimSpace(string(body)))
+	}
+
+	var collection BugTaskCollection
+	if err := json.Unmarshal(body, &collection); err != nil {
+		return nil, err
+	}
+
+	for i := range collection.Entries {
+		collection.Entries[i].client = b.client
+	}
+
+	return collection.Entries, nil
+}
+
+// SetStatus updates the bug task's status via a PATCH request.
+func (t *BugTask) SetStatus(status string) error {
+	payload, err := json.Marshal(map[string]string{"status": status})
+	if err != nil {
+		return fmt.Errorf("marshalling payload: %w", err)
+	}
+
+	resp, err := t.client.PatchAbsolute(t.SelfLink.String(), bytes.NewReader(payload))
+	if err != nil {
+		return fmt.Errorf("updating status: %w", err)
+	}
+	defer resp.Body.Close()
+
+	return checkPatchResponse(resp, fmt.Sprintf("update status on task %q", t.BugTargetName))
+}
+
+// SetImportance updates the bug task's importance via a PATCH request.
+func (t *BugTask) SetImportance(importance string) error {
+	payload, err := json.Marshal(map[string]string{"importance": importance})
+	if err != nil {
+		return fmt.Errorf("marshalling payload: %w", err)
+	}
+
+	resp, err := t.client.PatchAbsolute(t.SelfLink.String(), bytes.NewReader(payload))
+	if err != nil {
+		return fmt.Errorf("updating importance: %w", err)
+	}
+	defer resp.Body.Close()
+
+	return checkPatchResponse(resp, fmt.Sprintf("update importance on task %q", t.BugTargetName))
+}
+
+// SetAssignee updates the bug task's assignee via a PATCH request.
+// An empty username unassigns the task.
+func (t *BugTask) SetAssignee(username string) error {
+	var payload []byte
+	var err error
+	if username == "" {
+		payload = []byte(`{"assignee_link":null}`)
+	} else {
+		assigneeLink := fmt.Sprintf("https://api.launchpad.net/devel/~%s", username)
+		payload, err = json.Marshal(map[string]string{"assignee_link": assigneeLink})
+		if err != nil {
+			return fmt.Errorf("marshalling payload: %w", err)
+		}
+	}
+
+	resp, err := t.client.PatchAbsolute(t.SelfLink.String(), bytes.NewReader(payload))
+	if err != nil {
+		return fmt.Errorf("updating assignee: %w", err)
+	}
+	defer resp.Body.Close()
+
+	return checkPatchResponse(resp, fmt.Sprintf("update assignee on task %q", t.BugTargetName))
+}
+
+// GetMessages fetches all messages (comments) for this bug, following
+// pagination links. Each returned Message is fully populated.
+func (b *Bug) GetMessages() ([]Message, error) {
+	if b.MessagesCollectionLink.IsZero() {
+		return nil, fmt.Errorf("bug #%d has no messages link", b.ID)
+	}
+
+	var all []Message
+	url := b.MessagesCollectionLink.String()
+
+	for url != "" {
+		resp, err := b.client.GetAbsolute(url)
+		if err != nil {
+			return all, err
+		}
+
+		body, err := io.ReadAll(resp.Body)
+		resp.Body.Close()
+		if err != nil {
+			return all, err
+		}
+
+		if resp.StatusCode != http.StatusOK {
+			return all, fmt.Errorf("messages returned %d: %s", resp.StatusCode, strings.TrimSpace(string(body)))
+		}
+
+		var collection MessageCollection
+		if err := json.Unmarshal(body, &collection); err != nil {
+			return all, err
+		}
+
+		all = append(all, collection.Entries...)
+		url = collection.NextCollectionLink.String()
+	}
+
+	return all, nil
+}
+
+// ResolveTaskAssignees returns a map from assignee link URL to
+// "DisplayName (name)" for all unique assignees across the given tasks.
+func ResolveTaskAssignees(c *Client, tasks []BugTask) map[string]string {
+	var links []Link
+	for _, task := range tasks {
+		links = append(links, task.AssigneeLink)
+	}
+	return c.ResolvePersonLinks(links)
+}
+
+// ResolveMessageOwners returns a map from owner link URL to
+// "DisplayName (name)" for all unique message owners.
+func ResolveMessageOwners(c *Client, messages []Message) map[string]string {
+	var links []Link
+	for _, msg := range messages {
+		links = append(links, msg.OwnerLink)
+	}
+	return c.ResolvePersonLinks(links)
 }

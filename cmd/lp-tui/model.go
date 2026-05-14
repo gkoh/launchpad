@@ -137,89 +137,34 @@ func fetchBugCmd(client *launchpad.Client, bugID int) tea.Cmd {
 	}
 }
 
-func fetchBugTasksCmd(client *launchpad.Client, tasksURL string) tea.Cmd {
+func fetchBugTasksCmd(client *launchpad.Client, bug *launchpad.Bug) tea.Cmd {
 	return func() tea.Msg {
-		req, err := http.NewRequest(http.MethodGet, tasksURL, nil)
+		tasks, err := bug.GetTasks()
 		if err != nil {
-			return bugTasksMsg{err: err}
-		}
-		req.Header.Set("Accept", "application/json")
-
-		resp, err := client.Do(req)
-		if err != nil {
-			return bugTasksMsg{err: err}
-		}
-		defer resp.Body.Close()
-
-		body, err := io.ReadAll(resp.Body)
-		if err != nil {
-			return bugTasksMsg{err: err}
-		}
-
-		if resp.StatusCode != http.StatusOK {
-			return bugTasksMsg{err: fmt.Errorf("bug tasks returned %d", resp.StatusCode)}
-		}
-
-		var collection launchpad.BugTaskCollection
-		if err := json.Unmarshal(body, &collection); err != nil {
 			return bugTasksMsg{err: err}
 		}
 
 		// Resolve assignees.
 		var assigneeLinks []launchpad.Link
-		for _, t := range collection.Entries {
+		for _, t := range tasks {
 			assigneeLinks = append(assigneeLinks, t.AssigneeLink)
 		}
 		assignees := client.ResolvePersonLinks(assigneeLinks)
 
-		return bugTasksMsg{tasks: collection.Entries, assignees: assignees}
+		return bugTasksMsg{tasks: tasks, assignees: assignees}
 	}
 }
 
-func fetchCommentsCmd(client *launchpad.Client, messagesURL string) tea.Cmd {
+func fetchCommentsCmd(client *launchpad.Client, bug *launchpad.Bug) tea.Cmd {
 	return func() tea.Msg {
-		var allMessages []launchpad.Message
-		url := messagesURL
-
-		for url != "" {
-			req, err := http.NewRequest(http.MethodGet, url, nil)
-			if err != nil {
-				return commentsMsg{err: err}
-			}
-			req.Header.Set("Accept", "application/json")
-
-			resp, err := client.Do(req)
-			if err != nil {
-				return commentsMsg{err: err}
-			}
-
-			body, err := io.ReadAll(resp.Body)
-			resp.Body.Close()
-			if err != nil {
-				return commentsMsg{err: err}
-			}
-
-			if resp.StatusCode != http.StatusOK {
-				return commentsMsg{err: fmt.Errorf("messages returned %d", resp.StatusCode)}
-			}
-
-			var collection launchpad.MessageCollection
-			if err := json.Unmarshal(body, &collection); err != nil {
-				return commentsMsg{err: err}
-			}
-
-			allMessages = append(allMessages, collection.Entries...)
-			url = collection.NextCollectionLink.String()
+		messages, err := bug.GetMessages()
+		if err != nil {
+			return commentsMsg{err: err}
 		}
 
-		// Resolve owners.
-		var ownerLinks []launchpad.Link
-		for _, m := range allMessages {
-			ownerLinks = append(ownerLinks, m.OwnerLink)
-		}
-		owners := client.ResolvePersonLinks(ownerLinks)
+		owners := launchpad.ResolveMessageOwners(client, messages)
 
-		return commentsMsg{messages: allMessages, owners: owners}
+		return commentsMsg{messages: messages, owners: owners}
 	}
 }
 
@@ -286,10 +231,10 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		// Kick off tasks and comments fetch.
 		var cmds []tea.Cmd
 		if !msg.bug.BugTasksCollectionLink.IsZero() {
-			cmds = append(cmds, fetchBugTasksCmd(m.client, msg.bug.BugTasksCollectionLink.String()))
+			cmds = append(cmds, fetchBugTasksCmd(m.client, msg.bug))
 		}
 		if !msg.bug.MessagesCollectionLink.IsZero() {
-			cmds = append(cmds, fetchCommentsCmd(m.client, msg.bug.MessagesCollectionLink.String()))
+			cmds = append(cmds, fetchCommentsCmd(m.client, msg.bug))
 		}
 		if len(cmds) > 0 {
 			return m, tea.Batch(cmds...)

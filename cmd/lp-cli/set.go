@@ -1,14 +1,8 @@
 package main
 
 import (
-	"bytes"
-	"encoding/json"
 	"fmt"
-	"io"
-	"net/http"
-	"strings"
 
-	"github.com/gkoh/launchpad"
 	"github.com/spf13/cobra"
 )
 
@@ -88,11 +82,7 @@ func runSetBug(cmd *cobra.Command, args []string) error {
 		return err
 	}
 
-	if bug.BugTasksCollectionLink.IsZero() {
-		return fmt.Errorf("bug #%d has no tasks", setBugID)
-	}
-
-	tasks, err := fetchBugTasks(client, bug.BugTasksCollectionLink.String())
+	tasks, err := bug.GetTasks()
 	if err != nil {
 		return fmt.Errorf("fetching tasks: %w", err)
 	}
@@ -102,184 +92,43 @@ func runSetBug(cmd *cobra.Command, args []string) error {
 	}
 
 	if setBugTitle != "" {
-		if err := updateBugTitle(client, setBugID, setBugTitle); err != nil {
+		if err := bug.SetTitle(setBugTitle); err != nil {
 			return err
 		}
 	}
 
-	if assigneeSet {
-		if err := updateBugTaskAssignee(client, setBugID, tasks, setBugTask, setBugAssignee); err != nil {
+	if assigneeSet || statusSet || importanceSet {
+		task, err := findTaskByTarget(tasks, setBugTask)
+		if err != nil {
 			return err
 		}
-	}
 
-	if statusSet {
-		if err := updateBugTaskStatus(client, setBugID, tasks, setBugTask, setBugStatus); err != nil {
-			return err
+		if assigneeSet {
+			if err := task.SetAssignee(setBugAssignee); err != nil {
+				return err
+			}
+			if setBugAssignee == "" {
+				fmt.Printf("Unassigned task %q on bug #%d\n", setBugTask, setBugID)
+			} else {
+				fmt.Printf("Assigned %q to task %q on bug #%d\n", setBugAssignee, setBugTask, setBugID)
+			}
 		}
-	}
 
-	if importanceSet {
-		if err := updateBugTaskImportance(client, setBugID, tasks, setBugTask, setBugImportance); err != nil {
-			return err
+		if statusSet {
+			if err := task.SetStatus(setBugStatus); err != nil {
+				return err
+			}
+			fmt.Printf("Set status %q on task %q for bug #%d\n", setBugStatus, setBugTask, setBugID)
+		}
+
+		if importanceSet {
+			if err := task.SetImportance(setBugImportance); err != nil {
+				return err
+			}
+			fmt.Printf("Set importance %q on task %q for bug #%d\n", setBugImportance, setBugTask, setBugID)
 		}
 	}
 
 	// Display updated bug.
 	return showBug(client, setBugID, false)
-}
-
-// updateBugTitle sends a PATCH request to update a bug's title.
-func updateBugTitle(client *launchpad.Client, bugID int, title string) error {
-	payload, err := json.Marshal(map[string]string{"title": title})
-	if err != nil {
-		return fmt.Errorf("marshalling payload: %w", err)
-	}
-
-	resp, err := client.Patch(fmt.Sprintf("/bugs/%d", bugID), bytes.NewReader(payload))
-	if err != nil {
-		return fmt.Errorf("updating bug title: %w", err)
-	}
-	defer resp.Body.Close()
-
-	if resp.StatusCode == http.StatusUnauthorized {
-		return fmt.Errorf("not authorized to edit bug #%d (credentials may lack write permission; re-run 'lp-cli auth --permission WRITE_PRIVATE')", bugID)
-	}
-	if resp.StatusCode != http.StatusOK && resp.StatusCode != statusContentReturned {
-		body, _ := io.ReadAll(resp.Body)
-		return fmt.Errorf("API returned %d: %s", resp.StatusCode, strings.TrimSpace(string(body)))
-	}
-
-	return nil
-}
-
-// updateBugTaskAssignee sets the assignee on a bug task matching the given
-// target name. An empty username unassigns the task. The tasks slice must
-// have been fetched beforehand.
-func updateBugTaskAssignee(client *launchpad.Client, bugID int, tasks []launchpad.BugTask, targetName, username string) error {
-	matched, err := findTaskByTarget(tasks, targetName)
-	if err != nil {
-		return err
-	}
-
-	// Build the PATCH payload.
-	var payload []byte
-	if username == "" {
-		// Unassign: send null.
-		payload = []byte(`{"assignee_link":null}`)
-	} else {
-		assigneeLink := fmt.Sprintf("https://api.launchpad.net/devel/~%s", username)
-		payload, err = json.Marshal(map[string]string{"assignee_link": assigneeLink})
-		if err != nil {
-			return fmt.Errorf("marshalling payload: %w", err)
-		}
-	}
-
-	// PATCH the task.
-	taskURL := matched.SelfLink.String()
-	req, err := http.NewRequest(http.MethodPatch, taskURL, bytes.NewReader(payload))
-	if err != nil {
-		return err
-	}
-	req.Header.Set("Content-Type", "application/json")
-	req.Header.Set("Accept", "application/json")
-
-	patchResp, err := client.Do(req)
-	if err != nil {
-		return fmt.Errorf("updating assignee: %w", err)
-	}
-	defer patchResp.Body.Close()
-
-	if patchResp.StatusCode == http.StatusUnauthorized {
-		return fmt.Errorf("not authorized to edit bug #%d (credentials may lack write permission; re-run 'lp-cli auth --permission WRITE_PRIVATE')", bugID)
-	}
-	if patchResp.StatusCode != http.StatusOK && patchResp.StatusCode != statusContentReturned {
-		patchBody, _ := io.ReadAll(patchResp.Body)
-		return fmt.Errorf("API returned %d: %s", patchResp.StatusCode, strings.TrimSpace(string(patchBody)))
-	}
-
-	if username == "" {
-		fmt.Printf("Unassigned task %q on bug #%d\n", targetName, bugID)
-	} else {
-		fmt.Printf("Assigned %q to task %q on bug #%d\n", username, targetName, bugID)
-	}
-	return nil
-}
-
-// updateBugTaskStatus sets the status on a bug task matching the given target
-// name. The tasks slice must have been fetched beforehand.
-func updateBugTaskStatus(client *launchpad.Client, bugID int, tasks []launchpad.BugTask, targetName, status string) error {
-	matched, err := findTaskByTarget(tasks, targetName)
-	if err != nil {
-		return err
-	}
-
-	payload, err := json.Marshal(map[string]string{"status": status})
-	if err != nil {
-		return fmt.Errorf("marshalling payload: %w", err)
-	}
-
-	taskURL := matched.SelfLink.String()
-	req, err := http.NewRequest(http.MethodPatch, taskURL, bytes.NewReader(payload))
-	if err != nil {
-		return err
-	}
-	req.Header.Set("Content-Type", "application/json")
-	req.Header.Set("Accept", "application/json")
-
-	resp, err := client.Do(req)
-	if err != nil {
-		return fmt.Errorf("updating status: %w", err)
-	}
-	defer resp.Body.Close()
-
-	if resp.StatusCode == http.StatusUnauthorized {
-		return fmt.Errorf("not authorized to edit bug #%d (credentials may lack write permission; re-run 'lp-cli auth --permission WRITE_PRIVATE')", bugID)
-	}
-	if resp.StatusCode != http.StatusOK && resp.StatusCode != statusContentReturned {
-		body, _ := io.ReadAll(resp.Body)
-		return fmt.Errorf("API returned %d: %s", resp.StatusCode, strings.TrimSpace(string(body)))
-	}
-
-	fmt.Printf("Set status %q on task %q for bug #%d\n", status, targetName, bugID)
-	return nil
-}
-
-// updateBugTaskImportance sets the importance on a bug task matching the given
-// target name. The tasks slice must have been fetched beforehand.
-func updateBugTaskImportance(client *launchpad.Client, bugID int, tasks []launchpad.BugTask, targetName, importance string) error {
-	matched, err := findTaskByTarget(tasks, targetName)
-	if err != nil {
-		return err
-	}
-
-	payload, err := json.Marshal(map[string]string{"importance": importance})
-	if err != nil {
-		return fmt.Errorf("marshalling payload: %w", err)
-	}
-
-	taskURL := matched.SelfLink.String()
-	req, err := http.NewRequest(http.MethodPatch, taskURL, bytes.NewReader(payload))
-	if err != nil {
-		return err
-	}
-	req.Header.Set("Content-Type", "application/json")
-	req.Header.Set("Accept", "application/json")
-
-	resp, err := client.Do(req)
-	if err != nil {
-		return fmt.Errorf("updating importance: %w", err)
-	}
-	defer resp.Body.Close()
-
-	if resp.StatusCode == http.StatusUnauthorized {
-		return fmt.Errorf("not authorized to edit bug #%d (credentials may lack write permission; re-run 'lp-cli auth --permission WRITE_PRIVATE')", bugID)
-	}
-	if resp.StatusCode != http.StatusOK && resp.StatusCode != statusContentReturned {
-		body, _ := io.ReadAll(resp.Body)
-		return fmt.Errorf("API returned %d: %s", resp.StatusCode, strings.TrimSpace(string(body)))
-	}
-
-	fmt.Printf("Set importance %q on task %q for bug #%d\n", importance, targetName, bugID)
-	return nil
 }

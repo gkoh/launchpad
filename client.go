@@ -8,6 +8,10 @@ import (
 	"strings"
 )
 
+// StatusContentReturned is Launchpad's non-standard HTTP 209 response
+// indicating a successful PATCH with content returned.
+const StatusContentReturned = 209
+
 // Client is an HTTP client that automatically signs requests to the
 // Launchpad API using OAuth 1.0a PLAINTEXT credentials.
 type Client struct {
@@ -118,6 +122,7 @@ func (c *Client) GetBug(id int) (*Bug, error) {
 		return nil, fmt.Errorf("launchpad: parsing bug response: %w", err)
 	}
 
+	bug.client = c
 	return &bug, nil
 }
 
@@ -181,6 +186,27 @@ func (c *Client) ResolvePersonLinks(links []Link) map[string]string {
 	}
 
 	return result
+}
+
+// GetAbsolute performs a GET request against an absolute URL.
+func (c *Client) GetAbsolute(url string) (*http.Response, error) {
+	req, err := http.NewRequest(http.MethodGet, url, nil)
+	if err != nil {
+		return nil, fmt.Errorf("launchpad: creating request: %w", err)
+	}
+	req.Header.Set("Accept", "application/json")
+	return c.Do(req)
+}
+
+// PatchAbsolute performs a PATCH request against an absolute URL with a JSON body.
+func (c *Client) PatchAbsolute(url string, body io.Reader) (*http.Response, error) {
+	req, err := http.NewRequest(http.MethodPatch, url, body)
+	if err != nil {
+		return nil, fmt.Errorf("launchpad: creating request: %w", err)
+	}
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("Accept", "application/json")
+	return c.Do(req)
 }
 
 // Patch performs a PATCH request against the Launchpad API with a JSON body.
