@@ -22,7 +22,7 @@ type SearchTasksOptions struct {
 	SearchText     string
 	Status         string
 	Importance     string
-	Assignee       string         // Launchpad username; converted to full API link internally.
+	Assignee       string // Launchpad username; converted to full API link internally.
 	Tags           []string
 	TagsCombinator TagsCombinator // Defaults to TagsCombinatorAll if empty.
 	PageSize       int            // ws.size; 0 uses the API default.
