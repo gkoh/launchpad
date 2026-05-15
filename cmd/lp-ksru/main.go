@@ -5,8 +5,6 @@ import (
 	"fmt"
 	"os"
 	"regexp"
-	"strconv"
-	"strings"
 	"time"
 
 	"github.com/gkoh/launchpad"
@@ -95,20 +93,19 @@ func run(cmd *cobra.Command, args []string) error {
 		return nil
 	}
 
-	// Deduplicate by bug link — multiple tasks may reference the same bug.
-	type bugEntry struct {
-		bugLink string
-		order   int // preserve first-seen order
-	}
-	seen := make(map[string]bool)
-	var uniqueBugLinks []string
+	// Deduplicate by bug ID — multiple tasks may reference the same bug.
+	seen := make(map[int]bool)
+	var uniqueBugIDs []int
 	for _, task := range tasks {
-		link := task.BugLink.String()
-		if link == "" || seen[link] {
+		bugID, err := task.BugID()
+		if err != nil {
 			continue
 		}
-		seen[link] = true
-		uniqueBugLinks = append(uniqueBugLinks, link)
+		if seen[bugID] {
+			continue
+		}
+		seen[bugID] = true
+		uniqueBugIDs = append(uniqueBugIDs, bugID)
 	}
 
 	fmt.Printf("# SRU Cycle: %s\n", sruCycle)
@@ -116,13 +113,7 @@ func run(cmd *cobra.Command, args []string) error {
 	// Fetch each bug and display its details.
 	displayed := 0
 outer:
-	for _, bugLink := range uniqueBugLinks {
-		bugID, err := parseBugID(bugLink)
-		if err != nil {
-			fmt.Fprintf(os.Stderr, "Warning: could not parse bug ID from %s: %v\n", bugLink, err)
-			continue
-		}
-
+	for _, bugID := range uniqueBugIDs {
 		bug, err := client.GetBug(bugID)
 		if err != nil {
 			fmt.Fprintf(os.Stderr, "Warning: could not fetch bug #%d: %v\n", bugID, err)
@@ -158,9 +149,6 @@ outer:
 
 		displayed++
 		fmt.Printf("\n## Bug #%d: %s\n\n", bug.ID, bug.Title)
-		if len(bug.Tags) > 0 {
-			fmt.Printf("- **Tags:** %s\n", strings.Join(bug.Tags, ", "))
-		}
 		fmt.Printf("- **Tasks:**\n")
 		for _, t := range bugTasks {
 			if t.Status == launchpad.BugTaskStatusIncomplete {
@@ -174,7 +162,7 @@ outer:
 		fmt.Printf("- **Web:** %s\n", bug.WebLink)
 	}
 
-	fmt.Printf("\nDisplayed %d of %d bugs\n", displayed, len(uniqueBugLinks))
+	fmt.Printf("\nDisplayed %d of %d bugs\n", displayed, len(uniqueBugIDs))
 
 	return nil
 }
@@ -193,16 +181,6 @@ func searchAllTasks(client *launchpad.Client, sruCycle string) ([]launchpad.BugT
 		PageSize:       pageSize,
 		FollowPages:    true,
 	})
-}
-
-// parseBugID extracts the numeric bug ID from a Launchpad bug API link
-// (e.g. "https://api.launchpad.net/devel/bugs/12345" → 12345).
-func parseBugID(bugLink string) (int, error) {
-	idx := strings.LastIndex(bugLink, "/")
-	if idx < 0 || idx == len(bugLink)-1 {
-		return 0, fmt.Errorf("no path segment in %q", bugLink)
-	}
-	return strconv.Atoi(bugLink[idx+1:])
 }
 
 // humanDuration formats a duration into a human-readable string using

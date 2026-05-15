@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"strconv"
 	"strings"
 	"time"
 )
@@ -148,6 +149,19 @@ type BugTask struct {
 type BugTaskCollection struct {
 	CollectionMeta
 	Entries []BugTask `json:"entries"`
+}
+
+// BugID extracts the numeric bug ID from the task's BugLink.
+func (t *BugTask) BugID() (int, error) {
+	if t.BugLink.IsZero() {
+		return 0, fmt.Errorf("bug task has no bug link")
+	}
+	s := t.BugLink.String()
+	idx := strings.LastIndex(s, "/")
+	if idx < 0 || idx == len(s)-1 {
+		return 0, fmt.Errorf("no path segment in bug link %q", s)
+	}
+	return strconv.Atoi(s[idx+1:])
 }
 
 // checkPatchResponse validates a PATCH response from the Launchpad API.

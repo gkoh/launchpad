@@ -471,3 +471,24 @@ func TestBugTaskCollectionJSON(t *testing.T) {
 		t.Errorf("Entries[1].AssigneeLink = %q, want zero", got.Entries[1].AssigneeLink)
 	}
 }
+
+func TestBugTaskBugID(t *testing.T) {
+	task := &BugTask{
+		BugLink: NewLink("https://api.launchpad.net/devel/bugs/12345"),
+	}
+	id, err := task.BugID()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if id != 12345 {
+		t.Errorf("BugID() = %d, want 12345", id)
+	}
+}
+
+func TestBugTaskBugIDZeroLink(t *testing.T) {
+	task := &BugTask{}
+	_, err := task.BugID()
+	if err == nil {
+		t.Fatal("expected error for zero bug link, got nil")
+	}
+}
