@@ -1,11 +1,7 @@
 package main
 
 import (
-	"encoding/json"
 	"fmt"
-	"io"
-	"net/http"
-	"net/url"
 	"strings"
 
 	"github.com/gkoh/launchpad"
@@ -47,71 +43,40 @@ func init() {
 }
 
 func runSearchBug(cmd *cobra.Command, args []string) error {
-	// Remaining positional arguments form the search text.
-	searchText := strings.Join(args, " ")
-
-	// Build the search URL with ws.op=searchTasks.
-	params := url.Values{}
-	params.Set("ws.op", "searchTasks")
-	if searchText != "" {
-		params.Set("search_text", searchText)
-	}
-	if searchBugStatus != "" {
-		params.Set("status", searchBugStatus)
-	}
-	if searchBugImportance != "" {
-		params.Set("importance", searchBugImportance)
-	}
-	if searchBugAssignee != "" {
-		params.Set("assignee", fmt.Sprintf("https://api.launchpad.net/devel/~%s", searchBugAssignee))
-	}
-	if searchBugTags != "" {
-		for _, tag := range strings.Split(searchBugTags, ",") {
-			tag = strings.TrimSpace(tag)
-			if tag != "" {
-				params.Add("tags", tag)
-			}
-		}
-	}
-	params.Set("ws.size", fmt.Sprintf("%d", searchBugLimit))
-
-	path := fmt.Sprintf("/%s?%s", searchBugProject, params.Encode())
-
 	client, err := newClient()
 	if err != nil {
 		return err
 	}
 
-	resp, err := client.Get(path)
+	var tags []string
+	if searchBugTags != "" {
+		for _, tag := range strings.Split(searchBugTags, ",") {
+			tag = strings.TrimSpace(tag)
+			if tag != "" {
+				tags = append(tags, tag)
+			}
+		}
+	}
+
+	tasks, err := client.SearchTasks(searchBugProject, &launchpad.SearchTasksOptions{
+		SearchText: strings.Join(args, " "),
+		Status:     searchBugStatus,
+		Importance: searchBugImportance,
+		Assignee:   searchBugAssignee,
+		Tags:       tags,
+		PageSize:   searchBugLimit,
+	})
 	if err != nil {
 		return err
 	}
-	defer resp.Body.Close()
 
-	body, err := io.ReadAll(resp.Body)
-	if err != nil {
-		return fmt.Errorf("reading response: %w", err)
-	}
-
-	if resp.StatusCode == http.StatusNotFound {
-		return fmt.Errorf("project %q not found", searchBugProject)
-	}
-	if resp.StatusCode != http.StatusOK {
-		return fmt.Errorf("API returned %d: %s", resp.StatusCode, strings.TrimSpace(string(body)))
-	}
-
-	var collection launchpad.BugTaskCollection
-	if err := json.Unmarshal(body, &collection); err != nil {
-		return fmt.Errorf("parsing response: %w", err)
-	}
-
-	if len(collection.Entries) == 0 {
+	if len(tasks) == 0 {
 		fmt.Println("No results found.")
 		return nil
 	}
 
-	fmt.Printf("# Search Results (%d)\n", len(collection.Entries))
-	for _, task := range collection.Entries {
+	fmt.Printf("# Search Results (%d)\n", len(tasks))
+	for _, task := range tasks {
 		fmt.Printf("\n## %s\n\n", task.Title)
 		fmt.Printf("- **Target:** %s\n", task.BugTargetDisplayName)
 		fmt.Printf("- **Status:** %s\n", task.Status)

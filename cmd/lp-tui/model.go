@@ -1,11 +1,7 @@
 package main
 
 import (
-	"encoding/json"
 	"fmt"
-	"io"
-	"net/http"
-	"net/url"
 	"strings"
 
 	"github.com/charmbracelet/bubbles/spinner"
@@ -87,34 +83,11 @@ type commentsMsg struct {
 
 func searchBugsCmd(client *launchpad.Client, project, text string) tea.Cmd {
 	return func() tea.Msg {
-		params := url.Values{}
-		params.Set("ws.op", "searchTasks")
-		if text != "" {
-			params.Set("search_text", text)
-		}
-		params.Set("ws.size", "50")
-
-		path := fmt.Sprintf("/%s?%s", project, params.Encode())
-		resp, err := client.Get(path)
+		tasks, err := client.SearchTasks(project, &launchpad.SearchTasksOptions{
+			SearchText: text,
+			PageSize:   50,
+		})
 		if err != nil {
-			return searchResultsMsg{err: err}
-		}
-		defer resp.Body.Close()
-
-		body, err := io.ReadAll(resp.Body)
-		if err != nil {
-			return searchResultsMsg{err: err}
-		}
-
-		if resp.StatusCode == http.StatusNotFound {
-			return searchResultsMsg{err: fmt.Errorf("project %q not found", project)}
-		}
-		if resp.StatusCode != http.StatusOK {
-			return searchResultsMsg{err: fmt.Errorf("API returned %d: %s", resp.StatusCode, strings.TrimSpace(string(body)))}
-		}
-
-		var collection launchpad.BugTaskCollection
-		if err := json.Unmarshal(body, &collection); err != nil {
 			return searchResultsMsg{err: err}
 		}
 
@@ -123,7 +96,7 @@ func searchBugsCmd(client *launchpad.Client, project, text string) tea.Cmd {
 			query = fmt.Sprintf("Results for %s: %q", project, text)
 		}
 
-		return searchResultsMsg{tasks: collection.Entries, query: query}
+		return searchResultsMsg{tasks: tasks, query: query}
 	}
 }
 

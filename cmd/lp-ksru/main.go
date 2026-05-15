@@ -2,15 +2,12 @@
 package main
 
 import (
-	"encoding/json"
 	"fmt"
-	"io"
-	"net/http"
-	"net/url"
 	"os"
 	"regexp"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/gkoh/launchpad"
 	"github.com/spf13/cobra"
@@ -33,6 +30,7 @@ var sruCyclePattern = regexp.MustCompile(`^s?\d{4}\.\d{2}\.\d{2}$`)
 var (
 	consumerKey string
 	credsPath   string
+	showSnaps   bool
 )
 
 var rootCmd = &cobra.Command{
@@ -49,6 +47,7 @@ bugs tagged with the given SRU cycle (format: YYYY.MM.DD).`,
 func init() {
 	rootCmd.PersistentFlags().StringVar(&consumerKey, "consumer", "lp-cli", "OAuth consumer key (application name)")
 	rootCmd.PersistentFlags().StringVar(&credsPath, "credentials", "", "Path to credentials file (default: ~/.config/launchpad/<consumer>.json)")
+	rootCmd.Flags().BoolVar(&showSnaps, "snaps", false, "Include snap bugs (bugs with snap-prepare task)")
 }
 
 func main() {
@@ -112,9 +111,11 @@ func run(cmd *cobra.Command, args []string) error {
 		uniqueBugLinks = append(uniqueBugLinks, link)
 	}
 
-	fmt.Printf("# SRU Cycle: %s (%d bugs)\n", sruCycle, len(uniqueBugLinks))
+	fmt.Printf("# SRU Cycle: %s\n", sruCycle)
 
 	// Fetch each bug and display its details.
+	displayed := 0
+outer:
 	for _, bugLink := range uniqueBugLinks {
 		bugID, err := parseBugID(bugLink)
 		if err != nil {
@@ -134,18 +135,46 @@ func run(cmd *cobra.Command, args []string) error {
 			continue
 		}
 
+		// Skip snap bugs unless --snaps is set.
+		if !showSnaps {
+			isSnap := false
+			for _, t := range bugTasks {
+				if t.BugTargetName == sruProject+"/snap-prepare" {
+					isSnap = true
+					break
+				}
+			}
+			if isSnap {
+				continue outer
+			}
+		}
+
+		// Skip bugs where the kernel-sru-workflow task is Fix Committed.
+		for _, t := range bugTasks {
+			if t.BugTargetName == sruProject && t.Status == launchpad.BugTaskStatusFixCommitted {
+				continue outer
+			}
+		}
+
+		displayed++
 		fmt.Printf("\n## Bug #%d: %s\n\n", bug.ID, bug.Title)
 		if len(bug.Tags) > 0 {
 			fmt.Printf("- **Tags:** %s\n", strings.Join(bug.Tags, ", "))
 		}
-		if len(bugTasks) > 0 {
-			fmt.Printf("- **Tasks:**\n")
-			for _, t := range bugTasks {
-				fmt.Printf("  - %s: %s\n", t.BugTargetName, t.Status)
+		fmt.Printf("- **Tasks:**\n")
+		for _, t := range bugTasks {
+			if t.Status == launchpad.BugTaskStatusIncomplete {
+				if t.DateIncomplete != nil {
+					fmt.Printf("  - %s: %s (%s)\n", t.BugTargetName, t.Status, humanDuration(time.Since(*t.DateIncomplete)))
+				} else {
+					fmt.Printf("  - %s: %s\n", t.BugTargetName, t.Status)
+				}
 			}
 		}
 		fmt.Printf("- **Web:** %s\n", bug.WebLink)
 	}
+
+	fmt.Printf("\nDisplayed %d of %d bugs\n", displayed, len(uniqueBugLinks))
 
 	return nil
 }
@@ -153,71 +182,17 @@ func run(cmd *cobra.Command, args []string) error {
 // searchAllTasks fetches all bug tasks matching the SRU cycle tag,
 // following pagination links.
 func searchAllTasks(client *launchpad.Client, sruCycle string) ([]launchpad.BugTask, error) {
-	params := url.Values{}
-	params.Set("ws.op", "searchTasks")
+	var tags []string
 	for i := 1; i <= maxSRUSuffix; i++ {
-		params.Add("tags", fmt.Sprintf("kernel-sru-cycle-%s-%d", sruCycle, i))
-	}
-	params.Set("tags_combinator", "Any")
-	params.Set("ws.size", fmt.Sprintf("%d", pageSize))
-
-	searchURL := fmt.Sprintf("/%s?%s", sruProject, params.Encode())
-
-	var all []launchpad.BugTask
-
-	resp, err := client.Get(searchURL)
-	if err != nil {
-		return nil, err
-	}
-	defer resp.Body.Close()
-
-	body, err := io.ReadAll(resp.Body)
-	if err != nil {
-		return nil, fmt.Errorf("reading response: %w", err)
+		tags = append(tags, fmt.Sprintf("kernel-sru-cycle-%s-%d", sruCycle, i))
 	}
 
-	if resp.StatusCode == http.StatusNotFound {
-		return nil, fmt.Errorf("project %q not found", sruProject)
-	}
-	if resp.StatusCode != http.StatusOK {
-		return nil, fmt.Errorf("API returned %d: %s", resp.StatusCode, strings.TrimSpace(string(body)))
-	}
-
-	var collection launchpad.BugTaskCollection
-	if err := json.Unmarshal(body, &collection); err != nil {
-		return nil, fmt.Errorf("parsing response: %w", err)
-	}
-
-	all = append(all, collection.Entries...)
-
-	// Follow pagination.
-	nextURL := collection.NextCollectionLink.String()
-	for nextURL != "" {
-		resp, err := client.GetAbsolute(nextURL)
-		if err != nil {
-			return all, err
-		}
-
-		body, err := io.ReadAll(resp.Body)
-		resp.Body.Close()
-		if err != nil {
-			return all, fmt.Errorf("reading response: %w", err)
-		}
-
-		if resp.StatusCode != http.StatusOK {
-			return all, fmt.Errorf("API returned %d: %s", resp.StatusCode, strings.TrimSpace(string(body)))
-		}
-
-		var page launchpad.BugTaskCollection
-		if err := json.Unmarshal(body, &page); err != nil {
-			return all, fmt.Errorf("parsing response: %w", err)
-		}
-
-		all = append(all, page.Entries...)
-		nextURL = page.NextCollectionLink.String()
-	}
-
-	return all, nil
+	return client.SearchTasks(sruProject, &launchpad.SearchTasksOptions{
+		Tags:           tags,
+		TagsCombinator: launchpad.TagsCombinatorAny,
+		PageSize:       pageSize,
+		FollowPages:    true,
+	})
 }
 
 // parseBugID extracts the numeric bug ID from a Launchpad bug API link
@@ -228,4 +203,52 @@ func parseBugID(bugLink string) (int, error) {
 		return 0, fmt.Errorf("no path segment in %q", bugLink)
 	}
 	return strconv.Atoi(bugLink[idx+1:])
+}
+
+// humanDuration formats a duration into a human-readable string using
+// the two largest meaningful units.
+func humanDuration(d time.Duration) string {
+	if d < 0 {
+		d = -d
+	}
+
+	const (
+		day   = 24 * time.Hour
+		week  = 7 * day
+		month = 30 * day
+		year  = 365 * day
+	)
+
+	switch {
+	case d < time.Hour:
+		m := int(d.Minutes())
+		return fmt.Sprintf("%dm", m)
+	case d < day:
+		h := int(d.Hours())
+		return fmt.Sprintf("%dh", h)
+	case d < week:
+		days := int(d / day)
+		return fmt.Sprintf("%dd", days)
+	case d < month:
+		weeks := int(d / week)
+		days := int((d % week) / day)
+		if days > 0 {
+			return fmt.Sprintf("%dw %dd", weeks, days)
+		}
+		return fmt.Sprintf("%dw", weeks)
+	case d < year:
+		months := int(d / month)
+		weeks := int((d % month) / week)
+		if weeks > 0 {
+			return fmt.Sprintf("%dmo %dw", months, weeks)
+		}
+		return fmt.Sprintf("%dmo", months)
+	default:
+		years := int(d / year)
+		months := int((d % year) / month)
+		if months > 0 {
+			return fmt.Sprintf("%dy %dmo", years, months)
+		}
+		return fmt.Sprintf("%dy", years)
+	}
 }
